@@ -15,7 +15,7 @@ if not HF_TOKEN:
     raise ValueError("HF_TOKEN is not set in environment variables!")
 
 # New Hugging Face Router URL (Using correct capitalization for the model ID)
-HF_API_URL = "https://router.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
+HF_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
 
 # Optional: Welcome message at the root URL
 @app.route("/", methods=["GET"])
