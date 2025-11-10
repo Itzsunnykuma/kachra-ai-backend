@@ -16,7 +16,8 @@ if not HF_TOKEN:
 HF_API_URL = "https://api-inference.huggingface.co/models/meta-llama/meta-llama-3-8b-instruct"
 
 @app.route("/chat", methods=["POST"])
-    try:
+def chat():
+    try:   # <-- this line should be **exactly 4 spaces** from the def
         data = request.json
         prompt = data.get("prompt", "")
         if not prompt:
