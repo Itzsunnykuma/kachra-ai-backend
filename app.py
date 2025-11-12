@@ -37,11 +37,15 @@ def chat():
         response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=60)
         result = response.json()
 
-        # Check if result has 'generated_text'
-        if isinstance(result, dict) and "generated_text" in result:
-            text = result["generated_text"]
-        else:
-            text = str(result)
+        # Improved response parsing
+if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
+    text = result[0]["generated_text"]
+elif isinstance(result, dict) and "generated_text" in result:
+    text = result["generated_text"]
+elif isinstance(result, dict) and "error" in result:
+    text = f"Error from Hugging Face: {result['error']}"
+else:
+    text = str(result)
 
         return jsonify({"response": text})
 
