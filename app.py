@@ -28,9 +28,9 @@ def chat():
         }
 
         payload = {
-          "model": "meta-llama/Meta-Llama-3-8B-Instruct",  # Change to your model if needed
-            "inputs": prompt
-        }
+    "model": "meta-llama/Meta-Llama-3-8B",
+    "inputs": prompt
+}
 
         response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=60)
         result = response.json()
