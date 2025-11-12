@@ -1,63 +1,33 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import os
+import gradio as gr
 import requests
+import os
 
-app = Flask(__name__)
-CORS(app)  # Allow frontend to access API
+HF_TOKEN = os.getenv("HF_TOKEN")  # stored securely in Render
+MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-# Retrieve Hugging Face token from environment variables
-HF_TOKEN = os.environ.get("HF_TOKEN")
-if not HF_TOKEN:
-    raise ValueError("HF_TOKEN is not set in environment variables!")
+API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
+headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-# Hugging Face Router API endpoint
-HF_API_URL = "https://router.huggingface.co/hf-inference"
+def chat_with_llama(message, history):
+    conversation = ""
+    for human, bot in history:
+        conversation += f"Human: {human}\nAssistant: {bot}\n"
+    conversation += f"Human: {message}\nAssistant:"
+    
+    payload = {"inputs": conversation, "parameters": {"max_new_tokens": 256}}
+    response = requests.post(API_URL, headers=headers, json=payload)
+    
+    if response.status_code != 200:
+        return "Error: " + response.text
 
-@app.route("/chat", methods=["POST"])
-def chat():
-    try:
-        data = request.json
-        prompt = data.get("prompt", "")
-        if not prompt:
-            return jsonify({"response": "Please provide a message."})
+    text = response.json()[0]["generated_text"].split("Assistant:")[-1].strip()
+    return text
 
-        headers = {
-            "Authorization": f"Bearer {HF_TOKEN}",
-            "Content-Type": "application/json"
-        }
+chatbot = gr.ChatInterface(
+    fn=chat_with_llama,
+    title="🤖 Kachra AI",
+    description="Fun AI powered by Meta-Llama 3",
+)
 
-        payload = {
-    "model": "meta-llama/Meta-Llama-3-8B",
-    "inputs": prompt
-}
-
-        response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=60)
-        result = response.json()
-        print("HF API response:", result)  # For debugging
-
-        # Improved response parsing
-        if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
-            text = result[0]["generated_text"]
-        elif isinstance(result, dict) and "generated_text" in result:
-            text = result["generated_text"]
-        elif isinstance(result, dict) and "error" in result:
-            text = f"Error from Hugging Face: {result['error']}"
-        else:
-            text = str(result)
-
-        return jsonify({"response": text})
-
-    except Exception as e:
-        print("Error:", e)
-        return jsonify({"response": "Error connecting to AI."})
-
-# Optional health check
-@app.route("/healthz", methods=["GET"])
-def health():
-    return jsonify({"status": "ok"})
-
-# Run the app on Render or locally
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    chatbot.launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", 7860)))
