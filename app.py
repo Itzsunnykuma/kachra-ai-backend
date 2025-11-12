@@ -1,9 +1,7 @@
-# app.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import requests
-import json
 
 app = Flask(__name__)
 CORS(app)  # Allow frontend to access API
@@ -13,7 +11,7 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
     raise ValueError("HF_TOKEN is not set in environment variables!")
 
-# New Hugging Face Router API
+# Hugging Face Router API endpoint
 HF_API_URL = "https://router.huggingface.co/hf-inference"
 
 @app.route("/chat", methods=["POST"])
@@ -30,22 +28,23 @@ def chat():
         }
 
         payload = {
-            "model": "meta-llama/Llama-2-7b-chat-hf",  # You can change model if needed
+          "model": "meta-llama/Meta-Llama-3-8B-Instruct",  # Change to your model if needed
             "inputs": prompt
         }
 
         response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=60)
         result = response.json()
+        print("HF API response:", result)  # For debugging
 
         # Improved response parsing
-if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
-    text = result[0]["generated_text"]
-elif isinstance(result, dict) and "generated_text" in result:
-    text = result["generated_text"]
-elif isinstance(result, dict) and "error" in result:
-    text = f"Error from Hugging Face: {result['error']}"
-else:
-    text = str(result)
+        if isinstance(result, list) and len(result) > 0 and "generated_text" in result[0]:
+            text = result[0]["generated_text"]
+        elif isinstance(result, dict) and "generated_text" in result:
+            text = result["generated_text"]
+        elif isinstance(result, dict) and "error" in result:
+            text = f"Error from Hugging Face: {result['error']}"
+        else:
+            text = str(result)
 
         return jsonify({"response": text})
 
@@ -58,7 +57,7 @@ else:
 def health():
     return jsonify({"status": "ok"})
 
-# Run the app on Render
+# Run the app on Render or locally
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
