@@ -1,10 +1,8 @@
 import gradio as gr
 from huggingface_hub import InferenceClient
 
-# Initialize Hugging Face client (replace with your model if different)
 client = InferenceClient("meta-llama/Meta-Llama-3-8B-Instruct")
 
-# Define your chatbot logic
 def chat_with_ai(message, history):
     response = client.text_generation(
         message,
@@ -15,13 +13,11 @@ def chat_with_ai(message, history):
     )
     return response
 
-# Create the Gradio demo
-demo = gr.ChatInterface(
+app = gr.ChatInterface(  # 👈 renamed demo → app
     fn=chat_with_ai,
     title="Kachra AI 🤖",
     description="Fun public AI chatbot — talks trash like your best friend 😄",
 )
 
-# Run when started by Render
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=10000)
+    app.launch(server_name="0.0.0.0", server_port=10000)
