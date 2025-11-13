@@ -1,27 +1,55 @@
-import gradio as gr
-from huggingface_hub import InferenceClient
+from flask import Flask, request, jsonify
+import os
+import requests
 
-# Initialize the Hugging Face model client
-client = InferenceClient("meta-llama/Meta-Llama-3-8B-Instruct")
+app = Flask(__name__)
 
-# Define chatbot function
-def chat_with_ai(message, history):
-    response = client.text_generation(
-        message,
-        max_new_tokens=200,
-        temperature=0.7,
-        top_p=0.9,
-        repetition_penalty=1.05,
-    )
-    return response
+# Make sure to set this token in Render environment variables (Settings → Environment)
+HF_TOKEN = os.environ.get("HF_TOKEN")
+MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"  # or 70B version
 
-# Create the Gradio app (must be named 'app' for Gunicorn)
-app = gr.ChatInterface(
-    fn=chat_with_ai,
-    title="Kachra AI 🤖",
-    description="Public fun chatbot — talk to Kachra AI like your funny friend 😄",
-)
+@app.route("/")
+def home():
+    return jsonify({"message": "Kachra AI is live!"})
 
-# Run app locally (Render ignores this line — it uses gunicorn app:app)
+@app.route("/chat", methods=["POST"])
+def chat():
+    data = request.get_json()
+    if not data or "message" not in data:
+        return jsonify({"error": "Missing 'message' field"}), 400
+
+    prompt = data["message"]
+
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": MODEL,
+        "input": prompt,
+        "parameters": {
+            "temperature": 0.7,
+            "max_new_tokens": 300
+        }
+    }
+
+    response = requests.post("https://router.huggingface.co/inference", headers=headers, json=payload)
+
+    if response.status_code != 200:
+        return jsonify({
+            "error": "Failed to connect to Hugging Face",
+            "details": response.text
+        }), response.status_code
+
+    output = response.json()
+    text = output.get("generated_text", "")
+
+    # If it's in the new format (list of dicts)
+    if isinstance(output, list) and len(output) > 0:
+        text = output[0].get("generated_text", "")
+
+    return jsonify({"reply": text})
+
 if __name__ == "__main__":
-    app.launch(server_name="0.0.0.0", server_port=10000)
+    app.run(host="0.0.0.0", port=5000)
