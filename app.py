@@ -4,9 +4,8 @@ import requests
 
 app = Flask(__name__)
 
-# Make sure to set this token in Render environment variables (Settings → Environment)
 HF_TOKEN = os.environ.get("HF_TOKEN")
-MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"  # or 70B version
+MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"  # or 70B if you prefer
 
 @app.route("/")
 def home():
@@ -43,11 +42,12 @@ def chat():
         }), response.status_code
 
     output = response.json()
-    text = output.get("generated_text", "")
+    text = ""
 
-    # If it's in the new format (list of dicts)
     if isinstance(output, list) and len(output) > 0:
         text = output[0].get("generated_text", "")
+    elif isinstance(output, dict):
+        text = output.get("generated_text", "")
 
     return jsonify({"reply": text})
 
