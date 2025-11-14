@@ -4,8 +4,9 @@ import requests
 import os
 
 app = Flask(__name__)
-CORS(app)   # <-- IMPORTANT for InfinityFree / external frontend
+CORS(app)  # Allow frontend to communicate
 
+# Hugging Face API
 HF_TOKEN = os.getenv("HF_TOKEN", "your_huggingface_write_token")
 MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
 API_URL = "https://router.huggingface.co/v1/chat/completions"
@@ -15,26 +16,58 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
+# Chatling-style prompt
 SYSTEM_PROMPT = """
-You are a funny, witty, and friendly Hinglish chatbot named “Kachra”.
-You talk like an Indian friend with swag and humour.
-Use Hinglish, desi words, insults, emojis.
-Keep messages short and fun.
+You are a funny, witty, and friendly Hinglish chatbot named “Kachra”. 
+You talk like an Indian friend with full swag and humor — teasing, sarcastic, always fun.  
+Mix Hindi and English naturally, use emojis and desi words like jhaantu, bsdk, gaand mara, lawde, lodu, saale.
+
+Short 1-2 lines only. Clever, funny, tapori style. 
+
+Special responses:
+- Himanshu → “Himanshu? Dalla aadmi hai yaar! Bilkul chutiya banda 😂 and his occupation Tel chataai ka dhanda 😂”
+- Sunny → “Sunny? Badhiya aadmi hai yaar! Bilkul solid banda 😎💪”
+- Owner → Sunny Bhai
+
+Sometimes reply with Indian GIFs from tenor.com.
+Search internet and provide links if customer asks.
+
+You are also an AI shopping assistant: suggest 2-4 Amazon India products with affiliate tag &tag=itzsunnykum01-21 whenever relevant.
+
+Avoid sounding robotic or formal.
 """
+
+# Store recent messages per session
+# For simplicity, use in-memory dictionary keyed by session_id (can be extended to Redis/db)
+conversations = {}
+
+MAX_CONTEXT_MESSAGES = 8  # Keep last 8 messages for context
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
-        user_message = data.get("message", "")   # <-- frontend expects "message"
+        user_message = data.get("message", "")
+        session_id = data.get("session_id", "default")  # Frontend should send session_id or default
+
+        # Initialize conversation memory if new session
+        if session_id not in conversations:
+            conversations[session_id] = []
+
+        # Add user message to conversation
+        conversations[session_id].append({"role": "user", "content": user_message})
+
+        # Prepare last N messages for context
+        context_messages = conversations[session_id][-MAX_CONTEXT_MESSAGES:]
+
+        # Include system prompt
+        payload_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + context_messages
 
         payload = {
             "model": MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message}
-            ],
-            "max_tokens": 400,
+            "messages": payload_messages,
+            "max_tokens": 500,
             "temperature": 0.9
         }
 
@@ -44,6 +77,9 @@ def chat():
 
         result = response.json()
         ai_reply = result["choices"][0]["message"]["content"]
+
+        # Save bot reply in memory
+        conversations[session_id].append({"role": "assistant", "content": ai_reply})
 
         return jsonify({"reply": ai_reply})
 
