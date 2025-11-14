@@ -7,7 +7,7 @@ app = Flask(__name__)
 CORS(app)
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+API_URL = "https://router.huggingface.co/v1/chat/completions"
 MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 HEADERS = {
