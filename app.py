@@ -6,6 +6,15 @@ import os
 app = Flask(__name__)
 CORS(app)  # Allow frontend to communicate
 
+# 👇 Add this route so Render root URL works
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "status": "Kachra AI backend is running 🚀",
+        "message": "Use POST /chat to talk with Kachra."
+    }), 200
+
+
 # Hugging Face API
 HF_TOKEN = os.getenv("HF_TOKEN", "your_huggingface_write_token")
 MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -38,10 +47,8 @@ Avoid sounding robotic or formal.
 """
 
 # Store recent messages per session
-# For simplicity, use in-memory dictionary keyed by session_id (can be extended to Redis/db)
 conversations = {}
-
-MAX_CONTEXT_MESSAGES = 8  # Keep last 8 messages for context
+MAX_CONTEXT_MESSAGES = 8
 
 
 @app.route("/chat", methods=["POST"])
@@ -49,19 +56,19 @@ def chat():
     try:
         data = request.get_json()
         user_message = data.get("message", "")
-        session_id = data.get("session_id", "default")  # Frontend should send session_id or default
+        session_id = data.get("session_id", "default")
 
-        # Initialize conversation memory if new session
+        # Initialize conversation memory
         if session_id not in conversations:
             conversations[session_id] = []
 
-        # Add user message to conversation
+        # Add user message
         conversations[session_id].append({"role": "user", "content": user_message})
 
-        # Prepare last N messages for context
+        # Last N messages for context
         context_messages = conversations[session_id][-MAX_CONTEXT_MESSAGES:]
 
-        # Include system prompt
+        # Final payload
         payload_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + context_messages
 
         payload = {
@@ -72,13 +79,14 @@ def chat():
         }
 
         response = requests.post(API_URL, headers=HEADERS, json=payload)
+
         if response.status_code != 200:
             return jsonify({"error": "HF API error", "details": response.text}), 500
 
         result = response.json()
         ai_reply = result["choices"][0]["message"]["content"]
 
-        # Save bot reply in memory
+        # Save bot reply
         conversations[session_id].append({"role": "assistant", "content": ai_reply})
 
         return jsonify({"reply": ai_reply})
