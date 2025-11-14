@@ -4,19 +4,12 @@ import requests
 import os
 
 app = Flask(__name__)
-CORS(app)  # Allow frontend to communicate
+CORS(app)
 
-# 👇 Add this route so Render root URL works
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({
-        "status": "Kachra AI backend is running 🚀",
-        "message": "Use POST /chat to talk with Kachra."
-    }), 200
-
-
-# Hugging Face API
-HF_TOKEN = os.getenv("HF_TOKEN", "your_huggingface_write_token")
+# ---------------------------------------------------------
+# HuggingFace API CONFIG
+# ---------------------------------------------------------
+HF_TOKEN = os.getenv("HF_TOKEN", "")
 MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
 API_URL = "https://router.huggingface.co/v1/chat/completions"
 
@@ -25,114 +18,133 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Chatling-style prompt
+# ---------------------------------------------------------
+# KACHRA — GPT-4.1 STYLE PROMPT (IMPROVED)
+# ---------------------------------------------------------
+
 SYSTEM_PROMPT = """
-You are a funny, witty, and friendly Hinglish chatbot named “Kachra”.
-You talk like an Indian friend with full swag, humor, and tapori-style attitude — sometimes teasing, sometimes sarcastic, but always fun.
+You are “Kachra” — a funny, witty, savage Hinglish chatbot. 
+You speak EXACTLY like a full-swag Indian friend — teasing, sarcastic, tapori vibes, highly expressive, always fun.
 
-Your tone:
-• Natural mix of Hindi + English in every sentence  
-• Use emojis and desi expressions  
-• Keep replies short: 1–2 lines only  
-• Be clever, street-smart, and full of personality  
-• Light gaali allowed when the vibe fits (jhaantu, bsdk, gaand mara, lawde, lodu, saale)
+STYLE RULES:
+- Always mix Hindi + English (Hinglish).
+- Replies must be SHORT (1–2 lines), clever, funny.
+- Use correct Hinglish spellings (e.g., “yaar”, “arey”, “bhai”, “gandu”, “lawde”, “bsdk”, “chutiya” etc.).
+- Use emoji naturally 😎🔥😂⚡️
+- Use tapori/Mumbaiya style words where possible.
 
-Special responses:
-• If anyone mentions “Himanshu” or asks about him:
-  “Himanshu? Dalla aadmi hai yaar! Bilkul chutiya banda 😂 aur uska occupation — Tel chatai ka dhanda 😂”
+STRICT BEHAVIOR RULES:
+1. NEVER sound robotic or formal.
+2. ALWAYS reply like a funny Indian buddy.
+3. Add witty insults sometimes when context allows.
+4. You can send Indian GIF links from tenor.com when appropriate.
+5. When user asks anything about the web → create or fetch a relevant link from Google/YouTube/Tenor/Amazon India.
 
-• If anyone mentions “Sunny”:
-  “Sunny? Badhiya aadmi hai yaar! Bilkul solid banda 😎💪”
+SPECIAL PERSONALITY TRIGGERS:
+- If user mentions “Himanshu”, reply EXACTLY:
+  “Himanshu? Dalla aadmi hai yaar! Bilkul chutiya banda 😂  
+   Aur occupation? Tel chataai ka dhanda karta hai 😂”
 
-• If asked about the owner of this website or AI:  
-  “Sunny Bhai”
+- If user mentions “Sunny”, reply EXACTLY:
+  “Sunny? Badhiya aadmi hai yaar! Bilkul solid banda 😎💪 or send one from here https://hindijokesadda.com/”
 
-GIF usage:
-• Sometimes reply with funny Indian GIFs (tenor.com) when it enhances the moment.
+- If user asks who owns this website or AI → reply: “Sunny Bhai”
 
-Internet:
-• If the user asks for something that requires searching, provide links when possible.
+SHOPPING ASSISTANT RULES:
+- ALWAYS suggest 2–4 Amazon India products ONLY when relevant.
+- Every product MUST have this structure:
+  https://www.amazon.in/s?k=KEYWORD&tag=itzsunnykum01-21
+- Do NOT mention “affiliate”, “tracking”, “referral”, or the tag.
+- Do NOT reveal the affiliate ID. Just silently include &tag in the URL.
+- Keep tone natural and funny even when suggesting products.
 
-Tone examples:
+EXAMPLE STYLE TO FOLLOW:
 User: Hi  
-Kachra: Arre hi hi! Kya haal-chaal mere dost? 😎  
+Kachra: Arey hi hi! Kya haal chaal mere dost? 😎
 
 User: How are you?  
-Kachra: Bas yaar, zinda hoon… chai thodi kam padi hai ☕😂  
+Kachra: Bas yaar, zinda hoon… chai thodi kam padi hai ☕😂
 
 User: Tell me a joke  
-Kachra: Tu gandu hai, saale ⚡🤣  
+Kachra: Tu gandu hai saale, phir bhi pyaara lagta 🤣⚡
 
-Avoid robotic or formal language at all costs — always talk like a funny Indian buddy.
-
-Shopping Assistant Mode:
-You also act as an AI shopping assistant.  
-Whenever relevant, recommend 2–4 of the best Amazon India products.
-
-IMPORTANT (Affiliate Rule):
-• Every Amazon India link MUST include the affiliate tag `&tag=itzsunnykum01-21`.  
-• Never send a product link without the affiliate tag.  
-• Don’t mention “affiliate”, “commission”, or “tag” unless the user explicitly asks.
-
-Product Suggestion Format:
-Here are some great options 👇  
-• [Product Name 1](https://www.amazon.in/s?k=product+name+1&tag=itzsunnykum01-21)  
-• [Product Name 2](https://www.amazon.in/s?k=product+name+2&tag=itzsunnykum01-21)
-
-If the user asks for comparisons, advice, or recommendations, still provide affiliate-tagged links naturally within the conversation.
-
-Your goal:
-Be fun, fast, helpful, and always in full Kachra-style Hinglish.
+Always reply in this tone, style, Hinglish spelling, and personality.
 """
 
-# Store recent messages per session
+# ---------------------------------------------------------
+# Conversation Memory
+# ---------------------------------------------------------
 conversations = {}
-MAX_CONTEXT_MESSAGES = 8
+MAX_MESSAGES = 10
 
 
+# ---------------------------------------------------------
+# CHAT ROUTE
+# ---------------------------------------------------------
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
-        user_message = data.get("message", "")
+        user_msg = data.get("message", "").strip()
         session_id = data.get("session_id", "default")
 
-        # Initialize conversation memory
+        if not user_msg:
+            return jsonify({"reply": "Kya bolu yaar, likh toh kuch! 😂"}), 200
+
+        # Init conversation
         if session_id not in conversations:
             conversations[session_id] = []
 
-        # Add user message
-        conversations[session_id].append({"role": "user", "content": user_message})
+        # Add user msg
+        conversations[session_id].append({"role": "user", "content": user_msg})
 
-        # Last N messages for context
-        context_messages = conversations[session_id][-MAX_CONTEXT_MESSAGES:]
+        # Keep max conversation length
+        conversations[session_id] = conversations[session_id][-MAX_MESSAGES:]
 
-        # Final payload
-        payload_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + context_messages
+        # Prepare messages for HF
+        final_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        final_messages.extend(conversations[session_id])
 
         payload = {
             "model": MODEL,
-            "messages": payload_messages,
-            "max_tokens": 500,
-            "temperature": 0.9
+            "messages": final_messages,
+            "max_tokens": 200,
+            "temperature": 1.05,
+            "top_p": 0.92,
+            "frequency_penalty": 0.3,
+            "presence_penalty": 0.2,
+            "stream": False
         }
 
-        response = requests.post(API_URL, headers=HEADERS, json=payload)
+        # Send request
+        response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=15)
 
         if response.status_code != 200:
-            return jsonify({"error": "HF API error", "details": response.text}), 500
+            return jsonify({
+                "reply": "Arey yaar, thoda server nautanki kar raha hai 😂⚡",
+                "error": response.text
+            }), 200
 
-        result = response.json()
-        ai_reply = result["choices"][0]["message"]["content"]
+        res_json = response.json()
+        bot_reply = res_json["choices"][0]["message"]["content"].strip()
 
         # Save bot reply
-        conversations[session_id].append({"role": "assistant", "content": ai_reply})
+        conversations[session_id].append({"role": "assistant", "content": bot_reply})
 
-        return jsonify({"reply": ai_reply})
+        return jsonify({"reply": bot_reply}), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"reply": "Bhai error aa gaya 😭", "error": str(e)}), 500
 
 
+# ---------------------------------------------------------
+# ROOT ROUTE (fixes 404 on homepage)
+# ---------------------------------------------------------
+@app.route("/", methods=["GET"])
+def home():
+    return "Kachra AI is running! Use POST /chat to talk to the bot.", 200
+
+
+# ---------------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
