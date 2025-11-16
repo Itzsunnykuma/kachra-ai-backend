@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, Response
 from flask_cors import CORS
 import requests
 import os
@@ -8,7 +8,7 @@ import datetime
 import hashlib
 import hmac
 import json
-from urllib.parse import urlparse
+import html
 
 app = Flask(__name__)
 CORS(app)
@@ -30,36 +30,45 @@ HEADERS = {
 # ------------------------------
 # AMAZON PA-API CONFIG (replace or set as env vars)
 # ------------------------------
-# You provided masked keys; replace these or set env variables AMZ_ACCESS_KEY / AMZ_SECRET_KEY
 ACCESS_KEY = os.getenv("AMZ_ACCESS_KEY", "XXXXX")
 SECRET_KEY = os.getenv("AMZ_SECRET_KEY", "XXXXX")
 ASSOCIATE_TAG = os.getenv("AMZ_ASSOCIATE_TAG", "itzsunnykum01-21")
 
-# PA-API endpoint for India
 AMZ_HOST = "webservices.amazon.in"
 AMZ_ENDPOINT = f"https://{AMZ_HOST}/paapi5/searchitems"
-AMZ_REGION = "us-east-1"   # PA-API uses Signature V4 region "us-east-1" for many integrations
+AMZ_REGION = "us-east-1"
 
 # ------------------------------
 # AMAZON AFFILIATE LINK HELPER
 # ------------------------------
 def format_amazon_link(url, product_name):
     """
-    Ensure URL is full, add affiliate tag, and HTML target for new tab.
+    Ensure URL is full, add affiliate tag, canonicalize to /dp/ASIN if possible,
+    sanitize product_name for HTML attribute safety, and produce an <a> that opens new tab.
     """
-    url = url.strip()
-    # ensure url doesn't have trailing punctuation
-    url = url.rstrip(".,)")
-    if "tag=" not in url:
-        separator = "&" if "?" in url else "?"
-        url += f"{separator}tag={ASSOCIATE_TAG}"
-    # Force canonical DP link if possible (extract ASIN)
-    asin_match = re.search(r"/(dp|gp/product)/([A-Z0-9]{10})", url)
-    if asin_match:
-        asin = asin_match.group(2)
-        url = f"https://www.amazon.in/dp/{asin}/?tag={ASSOCIATE_TAG}"
+    if not url:
+        return ""
 
-    return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{product_name}</a>'
+    url = url.strip()
+    # remove trailing punctuation commonly added by text (. , ) etc.)
+    url = url.rstrip(".,)")
+
+    # If ASIN present, canonicalize to /dp/ASIN form
+    asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", url)
+    if asin_match:
+        asin = asin_match.group(1)
+        url = f"https://www.amazon.in/dp/{asin}/?tag={ASSOCIATE_TAG}"
+    else:
+        # ensure tag exists
+        if "tag=" not in url:
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}tag={ASSOCIATE_TAG}"
+
+    # sanitize product_name for HTML (escape &,<,>,")
+    safe_name = html.escape(product_name)
+
+    # return anchor that opens in new tab; innerHTML in frontend will render it correctly
+    return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{safe_name}</a>'
 
 
 SYSTEM_PROMPT = """
@@ -105,29 +114,29 @@ Always follow the above rules in every message.
 """
 
 # ----------------------------------------------------------
-# Helper: AWS SigV4 signing for PA-API (returns headers + payload)
+# Helper: AWS SigV4 signing for PA-API
 # ----------------------------------------------------------
 def sign_paapi_request(access_key, secret_key, payload_json):
-    """
-    Create signature headers for PA-API (AWS Signature Version 4).
-    Returns dict of headers to use in the POST request.
-    """
     method = "POST"
     service = "ProductAdvertisingAPI"
     host = AMZ_HOST
     region = AMZ_REGION
-    endpoint = AMZ_ENDPOINT
 
     t = datetime.datetime.utcnow()
     amz_date = t.strftime("%Y%m%dT%H%M%SZ")
-    datestamp = t.strftime("%Y%m%d")  # Date w/o time for credential scope
+    datestamp = t.strftime("%Y%m%d")
 
     content = payload_json.encode("utf-8")
     payload_hash = hashlib.sha256(content).hexdigest()
 
     canonical_uri = "/paapi5/searchitems"
     canonical_querystring = ""
-    canonical_headers = f"content-encoding:amz-1.0\ncontent-type:application/json; charset=utf-8\nhost:{host}\nx-amz-date:{amz_date}\n"
+    canonical_headers = (
+        "content-encoding:amz-1.0\n"
+        "content-type:application/json; charset=utf-8\n"
+        f"host:{host}\n"
+        f"x-amz-date:{amz_date}\n"
+    )
     signed_headers = "content-encoding;content-type;host;x-amz-date"
 
     canonical_request = "\n".join([
@@ -176,10 +185,6 @@ def sign_paapi_request(access_key, secret_key, payload_json):
 # Amazon search helper that calls PA-API and returns a clean product result
 # ----------------------------------------------------------
 def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SECRET_KEY, associate_tag=ASSOCIATE_TAG):
-    """
-    Query Amazon PA-API SearchItems for `keyword` and return
-    the first result with title, asin, price, image, and affiliate link.
-    """
     if access_key in (None, "", "XXXXX") or secret_key in (None, "", "XXXXX"):
         return {"error": "Amazon PA-API credentials not set. Please set AMZ_ACCESS_KEY and AMZ_SECRET_KEY."}
 
@@ -200,7 +205,6 @@ def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SEC
     }
 
     payload_json = json.dumps(payload, separators=(",", ":"))
-    # sign request
     headers = sign_paapi_request(access_key, secret_key, payload_json)
 
     try:
@@ -209,7 +213,6 @@ def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SEC
         return {"error": f"PA-API request failed: {str(e)}"}
 
     if not r.ok:
-        # return PA-API error (helpful for debugging)
         try:
             err = r.json()
         except Exception:
@@ -221,7 +224,6 @@ def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SEC
     except Exception as e:
         return {"error": "Invalid JSON from PA-API", "details": str(e)}
 
-    # parse first item
     items = data.get("SearchResult", {}).get("Items", [])
     if not items:
         return {"error": "No items found for query."}
@@ -238,8 +240,8 @@ def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SEC
         if price_amount is not None:
             price = f"{price_amount} {price_curr or ''}".strip()
 
-    # Build a stable affiliate DP link
     affiliate_url = f"https://www.amazon.in/dp/{asin}/?tag={associate_tag}"
+    html_link = format_amazon_link(affiliate_url, title)
 
     return {
         "asin": asin,
@@ -247,23 +249,19 @@ def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SEC
         "price": price,
         "image": image,
         "affiliate_url": affiliate_url,
-        "html_link": format_amazon_link(affiliate_url, title)
+        "html_link": html_link
     }
 
 # ----------------------------------------------------------
 # CHAT ENDPOINT — WITH PERSISTENT MEMORY PER SESSION
-# (keeps prior behavior; also includes amazon link cleanup)
 # ----------------------------------------------------------
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
         user_msg = data.get("message", "")
-        session_id = data.get("session_id")  # frontend must send this
+        session_id = data.get("session_id")
 
-        # ---------------------------------------
-        # Create / validate session
-        # ---------------------------------------
         if not session_id:
             session_id = str(uuid.uuid4())
             sessions[session_id] = []
@@ -271,16 +269,10 @@ def chat():
             if session_id not in sessions:
                 sessions[session_id] = []
 
-        # ---------------------------------------
-        # Build conversation history
-        # ---------------------------------------
         conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
-        conversation.extend(sessions[session_id][-15:])  # last 15 msgs
+        conversation.extend(sessions[session_id][-15:])
         conversation.append({"role": "user", "content": user_msg})
 
-        # ---------------------------------------
-        # Send to HF model
-        # ---------------------------------------
         payload = {
             "model": MODEL,
             "messages": conversation,
@@ -292,14 +284,13 @@ def chat():
         res = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
 
         if res.status_code != 200:
-            return jsonify({"error": res.text}), 500
+            # return JSON response as plain text JSON (not Flask jsonify) to avoid any HTML escaping
+            payload_err = {"error": res.text}
+            return Response(json.dumps(payload_err, ensure_ascii=False), mimetype="application/json"), 500
 
         reply = res.json()["choices"][0]["message"]["content"]
 
-        # ---------------------------------------
-        # Automatically format any raw amazon.in URLs the model returns
-        # (and try to use text before URL as friendly product name)
-        # ---------------------------------------
+        # detect raw amazon.in URLs and replace with affiliate anchors (friendly names)
         def replace_amazon_link(match):
             url = match.group(0)
             pre_text = reply[:match.start()]
@@ -310,23 +301,19 @@ def chat():
         amazon_regex = r"https?://www\.amazon\.in/[^\s,]+"
         reply = re.sub(amazon_regex, replace_amazon_link, reply)
 
-        # ---------------------------------------
-        # Save memory to session
-        # ---------------------------------------
         sessions[session_id].append({"role": "user", "content": user_msg})
         sessions[session_id].append({"role": "assistant", "content": reply})
 
-        return jsonify({
-            "reply": reply,
-            "session_id": session_id
-        })
+        response_payload = {"reply": reply, "session_id": session_id}
+        # Use Response + json.dumps to avoid any layer that might escape HTML
+        return Response(json.dumps(response_payload, ensure_ascii=False), mimetype="application/json")
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        err_payload = {"error": str(e)}
+        return Response(json.dumps(err_payload, ensure_ascii=False), mimetype="application/json"), 500
 
 # ----------------------------------------------------------
-# NEW: Amazon search endpoint (uses PA-API). Frontend or your chat logic can call this.
-# POST /amazon_search  { "query": "wireless headphones" }
+# Amazon search endpoint (uses PA-API)
 # ----------------------------------------------------------
 @app.route("/amazon_search", methods=["POST"])
 def amazon_search():
@@ -334,16 +321,16 @@ def amazon_search():
         data = request.get_json()
         query = data.get("query", "").strip()
         if not query:
-            return jsonify({"error": "query is required"}), 400
+            return Response(json.dumps({"error": "query is required"}, ensure_ascii=False), mimetype="application/json"), 400
 
         result = get_amazon_product_by_keyword(query)
-        return jsonify(result)
+        return Response(json.dumps(result, ensure_ascii=False), mimetype="application/json")
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return Response(json.dumps({"error": str(e)}, ensure_ascii=False), mimetype="application/json"), 500
 
 # ------------------------------
-# FIX: REQUIRED FOR RENDER
+# RUN (Render requires PORT env)
 # ------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
