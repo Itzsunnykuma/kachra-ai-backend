@@ -39,26 +39,33 @@ AMZ_ENDPOINT = f"https://{AMZ_HOST}/paapi5/searchitems"
 AMZ_REGION = "us-east-1"
 
 # ------------------------------
-# AMAZON AFFILIATE LINK HELPER
+# AMAZON AFFILIATE LINK BUILDER (MAIN FIX)
 # ------------------------------
-def format_amazon_link(url, product_name):
+def make_clickable_link(url, product_name="Buy on Amazon"):
+    """Convert any Amazon link into a clean <a> tag hyperlink."""
     if not url:
-        return ""
+        return url
 
-    url = url.strip()
-    url = url.rstrip(".,)")
+    url = url.strip().rstrip(".,)")
 
+    # Detect ASIN
     asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", url)
     if asin_match:
         asin = asin_match.group(1)
-        url = f"https://www.amazon.in/dp/{asin}/?tag={ASSOCIATE_TAG}"
+        final_url = f"https://www.amazon.in/dp/{asin}/?tag={ASSOCIATE_TAG}"
     else:
-        separator = "&" if "?" in url else "?"
-        if "tag=" not in url:
-            url = f"{url}{separator}tag={ASSOCIATE_TAG}"
+        # If no ASIN, just append tag safely
+        final_url = url
+        sep = "&" if "?" in final_url else "?"
+        if "tag=" not in final_url:
+            final_url += f"{sep}tag={ASSOCIATE_TAG}"
 
-    return url
+    return f'<a href="{final_url}" target="_blank" rel="noopener">{product_name}</a>'
 
+
+# ------------------------------
+# SYSTEM PROMPT
+# ------------------------------
 SYSTEM_PROMPT = """
 You are a funny, witty Hinglish chatbot named “Kachra”.
 Tone:
@@ -70,7 +77,7 @@ Tone:
 
 Shopping rule:
 ALWAYS show Amazon India affiliate links in this format:
-<a href="AMAZON_LINK&tag=itzsunnykum01-21">PRODUCT NAME</a>
+<a href="AMAZON_LINK&tag=itzsunnykum01-21" target="_blank" rel="noopener">PRODUCT NAME</a>
 
 NO markdown. Only HTML.
 """
@@ -134,7 +141,7 @@ def sign_paapi_request(access_key, secret_key, payload_json):
         f"SignedHeaders={signed_headers}, Signature={signature}"
     )
 
-    headers = {
+    return {
         "Content-Encoding": "amz-1.0",
         "Content-Type": "application/json; charset=utf-8",
         "Host": host,
@@ -142,11 +149,9 @@ def sign_paapi_request(access_key, secret_key, payload_json):
         "Authorization": authorization_header
     }
 
-    return headers
-
 
 # ----------------------------------------------------------
-# Amazon search helper
+# AMAZON SEARCH HELPER
 # ----------------------------------------------------------
 def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SECRET_KEY, associate_tag=ASSOCIATE_TAG):
     if access_key in (None, "", "XXXXX") or secret_key in (None, "", "XXXXX"):
@@ -161,8 +166,6 @@ def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SEC
             "ItemInfo.Title",
             "Images.Primary.Large",
             "Offers.Listings.Price",
-            "BrowseNodeInfo.BrowseNodes",
-            "ItemInfo.ByLineInfo"
         ],
         "SearchIndex": "All",
         "ItemCount": 1
@@ -170,55 +173,34 @@ def get_amazon_product_by_keyword(keyword, access_key=ACCESS_KEY, secret_key=SEC
 
     payload_json = json.dumps(payload, separators=(",", ":"))
     headers = sign_paapi_request(access_key, secret_key, payload_json)
-
-    try:
-        r = requests.post(AMZ_ENDPOINT, headers=headers, data=payload_json, timeout=10)
-    except Exception as e:
-        return {"error": f"PA-API request failed: {str(e)}"}
+    r = requests.post(AMZ_ENDPOINT, headers=headers, data=payload_json, timeout=10)
 
     if not r.ok:
-        try:
-            err = r.json()
-        except:
-            err = r.text
-        return {"error": "PA-API error", "details": err, "status": r.status_code}
+        return {"error": "PA-API error", "details": r.json()}
 
-    try:
-        data = r.json()
-    except Exception as e:
-        return {"error": "Invalid JSON", "details": str(e)}
-
+    data = r.json()
     items = data.get("SearchResult", {}).get("Items", [])
+
     if not items:
         return {"error": "No items found"}
 
     item = items[0]
     asin = item.get("ASIN")
-    title = item.get("ItemInfo", {}).get("Title", {}).get("DisplayValue", asin or "Product")
-    image = item.get("Images", {}).get("Primary", {}).get("Large", {}).get("URL")
-
-    price_info = item.get("Offers", {}).get("Listings", [])
-    price = None
-    if price_info:
-        p = price_info[0].get("Price", {})
-        if p.get("Amount"):
-            price = f"{p['Amount']} {p.get('Currency', '')}"
+    title = item.get("ItemInfo", {}).get("Title", {}).get("DisplayValue", "Product")
 
     affiliate_url = f"https://www.amazon.in/dp/{asin}/?tag={associate_tag}"
-    html_link = format_amazon_link(affiliate_url, title)
+    html_link = make_clickable_link(affiliate_url, title)
 
     return {
         "asin": asin,
         "title": title,
-        "price": price,
-        "image": image,
         "affiliate_url": affiliate_url,
         "html_link": html_link
     }
 
 
 # ----------------------------------------------------------
-# CHAT ENDPOINT
+# CHAT ENDPOINT (BIG FIX APPLIED HERE)
 # ----------------------------------------------------------
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -230,9 +212,8 @@ def chat():
         if not session_id:
             session_id = str(uuid.uuid4())
             sessions[session_id] = []
-        else:
-            if session_id not in sessions:
-                sessions[session_id] = []
+        elif session_id not in sessions:
+            sessions[session_id] = []
 
         conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
         conversation.extend(sessions[session_id][-15:])
@@ -247,52 +228,49 @@ def chat():
         }
 
         res = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
-        if res.status_code != 200:
-            return Response(json.dumps({"error": res.text}, ensure_ascii=False), mimetype="application/json"), 500
-
         reply = res.json()["choices"][0]["message"]["content"]
 
         # ------------------------------
-        # CLEAN AMAZON LINKS
+        # FIX 1: Convert ALL Amazon URLs → Clean Hyperlinks
         # ------------------------------
-        def repl(match):
+        def replace_url(match):
             url = match.group(0)
-            return format_amazon_link(url, "Product")
+            return make_clickable_link(url, "Buy on Amazon")
 
-        reply = re.sub(r"https?://www\.amazon\.in/[A-Za-z0-9/_\-\.\?=]+", repl, reply)
+        reply = re.sub(r"https?://[^\s]*amazon[^\s]*", replace_url, reply)
 
         # ------------------------------
-        # FINAL HTML UNESCAPE FIX
+        # FIX 2: Ensure existing <a> tags open in new tab
+        # ------------------------------
+        reply = reply.replace("<a ", "<a target=\"_blank\" rel=\"noopener\" ")
+
+        # ------------------------------
+        # FIX 3: Remove %3C & HTML escape issues
         # ------------------------------
         reply = html.unescape(reply)
         reply = reply.replace("%3C", "<").replace("%3E", ">")
 
+        # Save chat
         sessions[session_id].append({"role": "user", "content": user_msg})
         sessions[session_id].append({"role": "assistant", "content": reply})
 
-        return Response(json.dumps({"reply": reply, "session_id": session_id}, ensure_ascii=False), mimetype="application/json")
+        return Response(json.dumps({"reply": reply, "session_id": session_id}, ensure_ascii=False),
+                        mimetype="application/json")
 
     except Exception as e:
-        return Response(json.dumps({"error": str(e)}, ensure_ascii=False), mimetype="application/json"), 500
+        return Response(json.dumps({"error": str(e)}, ensure_ascii=False),
+                        mimetype="application/json"), 500
 
 
 # ----------------------------------------------------------
-# Amazon Search API
+# AMAZON SEARCH API
 # ----------------------------------------------------------
 @app.route("/amazon_search", methods=["POST"])
 def amazon_search():
-    try:
-        data = request.get_json()
-        query = data.get("query", "").strip()
-
-        if not query:
-            return Response(json.dumps({"error": "query is required"}, ensure_ascii=False), mimetype="application/json"), 400
-
-        result = get_amazon_product_by_keyword(query)
-        return Response(json.dumps(result, ensure_ascii=False), mimetype="application/json")
-
-    except Exception as e:
-        return Response(json.dumps({"error": str(e)}, ensure_ascii=False), mimetype="application/json"), 500
+    data = request.get_json()
+    query = data.get("query", "").strip()
+    result = get_amazon_product_by_keyword(query)
+    return Response(json.dumps(result, ensure_ascii=False), mimetype="application/json")
 
 
 # ------------------------------
