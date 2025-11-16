@@ -3,6 +3,7 @@ from flask_cors import CORS
 import requests
 import os
 import uuid
+import re
 
 app = Flask(__name__)
 CORS(app)
@@ -20,6 +21,19 @@ HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
 }
+
+# ------------------------------
+# AMAZON AFFILIATE LINK HELPER
+# ------------------------------
+def format_amazon_link(url, product_name):
+    """
+    Ensure URL is full, add affiliate tag, and HTML target for new tab.
+    """
+    url = url.strip()
+    if "tag=itzsunnykum01-21" not in url:
+        separator = "&" if "?" in url else "?"
+        url += f"{separator}tag=itzsunnykum01-21"
+    return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{product_name}</a>'
 
 SYSTEM_PROMPT = """
 You are a funny, witty, and friendly Hinglish chatbot named “Kachra”.
@@ -107,6 +121,22 @@ def chat():
             return jsonify({"error": res.text}), 500
 
         reply = res.json()["choices"][0]["message"]["content"]
+
+        # ---------------------------------------
+        # Automatically format Amazon India links with friendly name
+        # ---------------------------------------
+        def replace_amazon_link(match):
+            url = match.group(0)
+
+            # Try to extract product name from text before the URL
+            pre_text = reply[:match.start()]
+            product_name_match = re.findall(r'([\w\s\-\(\)\[\]]+)\s*$', pre_text)
+            product_name = product_name_match[-1].strip() if product_name_match else "Product"
+
+            return format_amazon_link(url, product_name)
+
+        amazon_regex = r"https?://www\.amazon\.in/[^\s,]+"
+        reply = re.sub(amazon_regex, replace_amazon_link, reply)
 
         # ---------------------------------------
         # Save memory to session
