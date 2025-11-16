@@ -57,9 +57,7 @@ def format_amazon_link(url, product_name):
         if "tag=" not in url:
             url = f"{url}{separator}tag={ASSOCIATE_TAG}"
 
-    safe_name = html.escape(product_name)
-    return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{safe_name}</a>'
-
+    return url
 
 SYSTEM_PROMPT = """
 You are a funny, witty Hinglish chatbot named “Kachra”.
@@ -261,7 +259,7 @@ def chat():
             url = match.group(0)
             return format_amazon_link(url, "Product")
 
-        reply = re.sub(r"https?://www\.amazon\.in/[^\s,]+", repl, reply)
+        reply = re.sub(r"https?://www\.amazon\.in/[A-Za-z0-9/_\-\.\?=]+", repl, reply)
 
         # ------------------------------
         # FINAL HTML UNESCAPE FIX
