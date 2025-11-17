@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ------------------------------
-# SESSION MEMORY STORAGE
+# SESSION MEMORY
 # ------------------------------
 sessions = {}  # { session_id: [ {role, content}, ... ] }
 
@@ -35,7 +35,6 @@ def convert_amazon_links_to_affiliate(text):
             sep = "&" if "?" in url else "?"
             url += f"{sep}tag={ASSOCIATE_TAG}"
 
-        # Extract product name from URL
         segments = url.split("/")
         product_name = segments[-2] if len(segments) > 2 else segments[-1]
         product_name = re.sub(r"[-_]", " ", product_name)
@@ -62,39 +61,6 @@ If suggesting a product, ALWAYS provide a clickable Amazon India affiliate link 
 <a href="https://www.amazon.in/dp/B0EXAMPLE/?tag={ASSOCIATE_TAG}" target="_blank" rel="noopener">PRODUCT NAME</a>
 NO markdown. Only HTML.
 """
-
-# ------------------------------
-# LIVE NEWS FACT-CHECKING (optional)
-# ------------------------------
-SEARCH_API_KEY = os.getenv("SERPAPI_KEY", None)
-SEARCH_API_URL = "https://serpapi.com/search.json"
-
-def fact_check_news(query, max_results=3):
-    if not SEARCH_API_KEY:
-        return "Fact-checking not enabled. API key missing."
-    params = {
-        "engine": "google",
-        "q": query,
-        "api_key": SEARCH_API_KEY,
-        "tbm": "nws",
-        "num": max_results
-    }
-    try:
-        response = requests.get(SEARCH_API_URL, params=params, timeout=5)
-        results = response.json().get("news_results", [])
-        summaries = []
-        for i, item in enumerate(results[:max_results]):
-            title = item.get("title", "No title")
-            link = item.get("link", "")
-            snippet = item.get("snippet", "")
-            summaries.append(f"{i+1}. {title} - {snippet} <a href='{link}' target='_blank'>Source</a>")
-        return "<br>".join(summaries) if summaries else "No credible sources found for this claim."
-    except Exception as e:
-        return f"Error during fact-checking: {str(e)}"
-
-def is_fact_check_query(user_input):
-    triggers = ["kya sach", "verify", "fact check", "sahi hai", "sach hai"]
-    return any(trigger in user_input.lower() for trigger in triggers)
 
 # ------------------------------
 # SESSION HANDLING
@@ -145,13 +111,6 @@ def chat():
     if not any(m["role"] == "system" for m in session_memory):
         session_memory.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
-    # Fact-check branch
-    if is_fact_check_query(user_input) and SEARCH_API_KEY:
-        fact_result = fact_check_news(user_input)
-        session_memory.append({"role": "assistant", "content": fact_result})
-        sessions[session_id] = session_memory[-8:]
-        return jsonify({"session_id": session_id, "response": fact_result})
-
     # Build user message string for HF
     user_message = SYSTEM_PROMPT + "\n\n"
     for m in session_memory[-8:]:
@@ -162,7 +121,7 @@ def chat():
     # Call HF
     reply = call_hf(user_message, max_tokens=250)
 
-    # Convert Amazon links to affiliate links with product names
+    # Convert Amazon links
     reply = convert_amazon_links_to_affiliate(reply)
 
     # Append to session memory
