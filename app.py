@@ -2,136 +2,70 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 import os
-import uuid
-import re
 
 app = Flask(__name__)
 CORS(app)
 
-# ------------------------------
-# SESSION MEMORY
-# ------------------------------
-sessions = {}  # { session_id: [ {role, content}, ... ] }
-
 HF_TOKEN = os.getenv("HF_TOKEN")
-MODEL = "meta-llama/Llama-2-7b-chat-hf"
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
-HEADERS = {"Authorization": f"Bearer {HF_TOKEN}", "Content-Type": "application/json"}
+API_URL = "https://router.huggingface.co/v1/chat/completions"
+MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
 
-# ------------------------------
-# AMAZON AFFILIATE
-# ------------------------------
-ASSOCIATE_TAG = "itzsunnykum01-21"
+HEADERS = {
+    "Authorization": f"Bearer {HF_TOKEN}",
+    "Content-Type": "application/json"
+}
 
-def convert_amazon_links_to_affiliate(text):
-    """
-    Convert Amazon URLs in text to clickable affiliate links using product name.
-    """
-    pattern = r"https?://www\.amazon\.in/[^\s<>]+"
+SYSTEM_PROMPT = """
+You are a funny, witty, and friendly Hinglish chatbot named “Kachra”.
+You talk like an Indian friend with full swag — teasing, sarcastic, tapori style.
 
-    def replace_link(match):
-        url = match.group(0)
-        if "tag=" not in url:
-            sep = "&" if "?" in url else "?"
-            url += f"{sep}tag={ASSOCIATE_TAG}"
+Mix Hindi + English naturally.  
+Keep replies short, like 1-2 lines only, clever, and full of personality like jhaantu, bsdk, gaand maraa, lawde, lodu, saale, mc, bc.
+Use emojis and desi gaalis lightly when needed.
 
-        segments = url.split("/")
-        product_name = segments[-2] if len(segments) > 2 else segments[-1]
-        product_name = re.sub(r"[-_]", " ", product_name)
-        product_name = re.sub(r"\?.*$", "", product_name)
-        product_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
-        return f'<a href="{url}" target="_blank" rel="noopener">{product_name}</a>'
+If asked about “Himanshu”:
+“Himanshu? Dalla aadmi hai yaar! Bilkul chutiya banda 😂 and his occupation Tel chataai ka dhanda 😂”
 
-    return re.sub(pattern, replace_link, text)
+If asked about “Sunny”: 
+“Sunny? Badhiya aadmi hai yaar! Solid banda 😎💪”
 
-# ------------------------------
-# SYSTEM PROMPT
-# ------------------------------
-SYSTEM_PROMPT = f"""
-You are a funny, witty Hinglish chatbot named “Kachra”.
-Tone:
-- Natural Hinglish (NO broken Hindi/English)
-- Short replies (1–3 lines)
-- Funny, sarcastic, swag vibe
-- Light slang allowed ("yaar", "bhai", "chomu")
-- No heavy profanity
+Owner = Sunny Bhai.
 
-Shopping rule:
-If suggesting a product, ALWAYS provide a clickable Amazon India affiliate link like this:
-<a href="https://www.amazon.in/dp/B0EXAMPLE/?tag={ASSOCIATE_TAG}" target="_blank" rel="noopener">PRODUCT NAME</a>
-NO markdown. Only HTML.
+Sometimes reply using Indian GIF links from tenor.com.
+
+You are also a shopping assistant.  
+Whenever you mention a product, always give Amazon India links containing the tag `&tag=itzsunnykum01-21`.
+
+Keep tone funny, natural, Hinglish, and very human-like.
 """
 
-# ------------------------------
-# SESSION HANDLING
-# ------------------------------
-def get_session(session_id=None):
-    if not session_id or session_id not in sessions:
-        session_id = str(uuid.uuid4())
-        sessions[session_id] = []
-    return session_id, sessions[session_id]
-
-# ------------------------------
-# CALL HUGGINGFACE
-# ------------------------------
-def call_hf(user_message, max_tokens=250):
-    if not HF_TOKEN:
-        return "HF_TOKEN not set. Kachra cannot reply 😢"
-
-    payload = {
-        "inputs": user_message,
-        "parameters": {"max_new_tokens": max_tokens, "temperature": 0.7}
-    }
-
-    try:
-        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=120)
-        resp.raise_for_status()
-        resp_json = resp.json()
-        if isinstance(resp_json, dict) and "generated_text" in resp_json:
-            return resp_json["generated_text"]
-        elif isinstance(resp_json, list) and len(resp_json) > 0:
-            return resp_json[0].get("generated_text", "Hmm yaar, thoda dikkat hai, try again!")
-        else:
-            return "Hmm yaar, thoda dikkat hai, try again!"
-    except Exception as e:
-        return f"Error connecting to HF: {str(e)}"
-
-# ------------------------------
-# CHAT ENDPOINT
-# ------------------------------
 @app.route("/chat", methods=["POST"])
 def chat():
-    data = request.json
-    user_input = data.get("message", "").strip()
-    session_id = data.get("session_id")
+    try:
+        data = request.get_json()
+        message = data.get("message", "")
 
-    session_id, session_memory = get_session(session_id)
+        payload = {
+            "model": MODEL,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": message}
+            ],
+            "max_tokens": 300,
+            "temperature": 0.85,
+            "top_p": 0.9
+        }
 
-    # Ensure system prompt is first
-    if not any(m["role"] == "system" for m in session_memory):
-        session_memory.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+        res = requests.post(API_URL, headers=HEADERS, json=payload, timeout=30)
 
-    # Build user message string for HF
-    user_message = SYSTEM_PROMPT + "\n\n"
-    for m in session_memory[-8:]:
-        if m["role"] != "system":
-            user_message += f'{m["role"].capitalize()}: {m["content"]}\n'
-    user_message += f"User: {user_input}\nAssistant:"
+        if res.status_code != 200:
+            return jsonify({"error": res.text}), 500
 
-    # Call HF
-    reply = call_hf(user_message, max_tokens=250)
+        reply = res.json()["choices"][0]["message"]["content"]
+        return jsonify({"reply": reply})
 
-    # Convert Amazon links
-    reply = convert_amazon_links_to_affiliate(reply)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    # Append to session memory
-    session_memory.append({"role": "assistant", "content": reply})
-    sessions[session_id] = session_memory[-8:]
-
-    return jsonify({"session_id": session_id, "response": reply})
-
-# ------------------------------
-# RUN APP
-# ------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=10000)
