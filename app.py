@@ -14,20 +14,46 @@ CORS(app)
 sessions = {}  # { session_id: [ {role, content}, ... ] }
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://router.huggingface.co/v1/chat/completions"
-MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
-
+MODEL = "meta-llama/Llama-2-7b-chat-hf"
+API_URL = "https://api-inference.huggingface.co/v1/models/" + MODEL
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
 }
 
-ASSOCIATE_TAG = os.getenv("AMZ_ASSOCIATE_TAG", "itzsunnykum01-21")
+# ------------------------------
+# AMAZON AFFILIATE
+# ------------------------------
+ASSOCIATE_TAG = "itzsunnykum01-21"
+
+def convert_amazon_links_to_affiliate(text):
+    """
+    Find all Amazon URLs in text and convert them to clickable affiliate links
+    using product name from URL if available.
+    """
+    pattern = r"https?://www\.amazon\.in/[^\s<>]+"
+
+    def replace_link(match):
+        url = match.group(0)
+        # Ensure tag is present
+        if "tag=" not in url:
+            sep = "&" if "?" in url else "?"
+            url += f"{sep}tag={ASSOCIATE_TAG}"
+
+        # Extract product name from URL path
+        segments = url.split("/")
+        product_name = segments[-2] if len(segments) > 2 else segments[-1]
+        product_name = re.sub(r"[-_]", " ", product_name)
+        product_name = re.sub(r"\?.*$", "", product_name)  # remove query params
+        product_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
+        return f'<a href="{url}" target="_blank" rel="noopener">{product_name}</a>'
+
+    return re.sub(pattern, replace_link, text)
 
 # ------------------------------
 # SYSTEM PROMPT
 # ------------------------------
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = f"""
 You are a funny, witty Hinglish chatbot named “Kachra”.
 Tone:
 - Natural Hinglish (NO broken Hindi/English)
@@ -37,14 +63,13 @@ Tone:
 - No heavy profanity
 
 Shopping rule:
-ALWAYS show Amazon India affiliate links in this format:
-<a href="AMAZON_LINK&tag=itzsunnykum01-21" target="_blank" rel="noopener">PRODUCT NAME</a>
-
+If suggesting a product, ALWAYS provide a clickable Amazon India affiliate link like this:
+<a href="https://www.amazon.in/dp/B0EXAMPLE/?tag={ASSOCIATE_TAG}" target="_blank" rel="noopener">PRODUCT NAME</a>
 NO markdown. Only HTML.
 """
 
 # ------------------------------
-# LIVE NEWS FACT-CHECKING
+# LIVE NEWS FACT-CHECKING (optional)
 # ------------------------------
 SEARCH_API_KEY = os.getenv('SERPAPI_KEY', None)
 SEARCH_API_URL = 'https://serpapi.com/search.json'
@@ -91,20 +116,16 @@ def get_session(session_id=None):
 def call_hf(messages, max_tokens=200):
     if not HF_TOKEN:
         return "HF_TOKEN not set. Kachra cannot reply 😢"
-    payload = {
-        "model": MODEL,
-        "messages": messages,
-        "max_new_tokens": max_tokens,
-        "temperature": 0.7
-    }
+
+    payload = {"inputs": messages, "parameters": {"max_new_tokens": max_tokens}}
     try:
         resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
         resp.raise_for_status()
         resp_json = resp.json()
-        # Debugging: print HF response if needed
-        # print("HF Response:", resp_json)
-        if 'choices' in resp_json and len(resp_json['choices']) > 0:
-            return resp_json['choices'][0]['message']['content'] or "Hmm yaar, thoda dikkat hai, try again!"
+        if isinstance(resp_json, dict) and 'generated_text' in resp_json:
+            return resp_json['generated_text'] or "Hmm yaar, thoda dikkat hai, try again!"
+        elif isinstance(resp_json, list) and len(resp_json) > 0:
+            return resp_json[0].get('generated_text', "Hmm yaar, thoda dikkat hai, try again!")
         else:
             return "Hmm yaar, thoda dikkat hai, try again!"
     except Exception as e:
@@ -138,6 +159,9 @@ def chat():
 
     # Call HF
     reply = call_hf(payload_messages, max_tokens=250)
+
+    # Convert Amazon links in the reply to clickable affiliate links with product names
+    reply = convert_amazon_links_to_affiliate(reply)
 
     # Append to session memory and save
     session_memory.append({'role': 'assistant', 'content': reply})
