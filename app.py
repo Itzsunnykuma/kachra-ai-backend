@@ -89,14 +89,14 @@ def chat():
         # Get session memory
         session_id, session_memory = get_session(session_id)
 
-        # Ensure system prompt is first
+        # Ensure system prompt first
         if not any(m['role'] == 'system' for m in session_memory):
             session_memory.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
         # Append user message
         session_memory.append({"role": "user", "content": message})
 
-        # Prepare HF payload with **full conversation**
+        # Prepare HF payload with full conversation
         payload = {
             "model": MODEL,
             "messages": session_memory,
@@ -120,6 +120,7 @@ def chat():
         # Save full conversation
         sessions[session_id] = session_memory
 
+        # Return session_id for client to continue conversation
         return jsonify({"session_id": session_id, "reply": reply})
 
     except Exception as e:
