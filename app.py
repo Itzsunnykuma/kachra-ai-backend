@@ -22,25 +22,7 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# ------------------------------
-# AMAZON AFFILIATE LINK BUILDER
-# ------------------------------
 ASSOCIATE_TAG = os.getenv("AMZ_ASSOCIATE_TAG", "itzsunnykum01-21")
-
-def make_clickable_link(url, product_name="Buy on Amazon"):
-    if not url:
-        return url
-    url = url.strip().rstrip(".,)")
-    asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", url)
-    if asin_match:
-        asin = asin_match.group(1)
-        final_url = f"https://www.amazon.in/dp/{asin}/?tag={ASSOCIATE_TAG}"
-    else:
-        final_url = url
-        sep = "&" if "?" in final_url else "?"
-        if "tag=" not in final_url:
-            final_url += f"{sep}tag={ASSOCIATE_TAG}"
-    return f'<a href="{final_url}" target="_blank" rel="noopener">{product_name}</a>'
 
 # ------------------------------
 # SYSTEM PROMPT
@@ -104,12 +86,37 @@ def get_session(session_id=None):
     return session_id, sessions[session_id]
 
 # ------------------------------
+# HELPER: SAFE HF CALL
+# ------------------------------
+def call_hf(messages, max_tokens=200):
+    if not HF_TOKEN:
+        return "HF_TOKEN not set. Kachra cannot reply 😢"
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "max_new_tokens": max_tokens,
+        "temperature": 0.7
+    }
+    try:
+        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
+        resp.raise_for_status()
+        resp_json = resp.json()
+        # Debugging: print HF response if needed
+        # print("HF Response:", resp_json)
+        if 'choices' in resp_json and len(resp_json['choices']) > 0:
+            return resp_json['choices'][0]['message']['content'] or "Hmm yaar, thoda dikkat hai, try again!"
+        else:
+            return "Hmm yaar, thoda dikkat hai, try again!"
+    except Exception as e:
+        return f"Error connecting to HF: {str(e)}"
+
+# ------------------------------
 # CHAT ENDPOINT
 # ------------------------------
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.json
-    user_input = data.get('message', '')
+    user_input = data.get('message', '').strip()
     session_id = data.get('session_id')
 
     session_id, session_memory = get_session(session_id)
@@ -122,35 +129,20 @@ def chat():
     if is_fact_check_query(user_input) and SEARCH_API_KEY:
         fact_result = fact_check_news(user_input)
         session_memory.append({'role': 'assistant', 'content': fact_result})
-        # save truncated memory
         sessions[session_id] = session_memory[-8:]
         return jsonify({'session_id': session_id, 'response': fact_result})
 
-    # Limit memory to last 8 exchanges + current user input
+    # Build messages safely (last 8 exchanges + current user input)
     MAX_MEMORY = 8
     payload_messages = session_memory[-MAX_MEMORY:] + [{"role": "user", "content": user_input}]
 
-    payload = {
-        "model": MODEL,
-        "messages": payload_messages,
-        "max_new_tokens": 300,
-        "temperature": 0.7
-    }
+    # Call HF
+    reply = call_hf(payload_messages, max_tokens=250)
 
-    try:
-        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=90)
-        resp.raise_for_status()
-        resp_json = resp.json()
-        if 'choices' in resp_json and len(resp_json['choices']) > 0:
-            reply = resp_json['choices'][0]['message']['content']
-        else:
-            reply = "Hmm yaar, thoda dikkat hai, try again!"
-    except Exception as e:
-        reply = f"Error generating response: {str(e)}"
-
+    # Append to session memory and save
     session_memory.append({'role': 'assistant', 'content': reply})
-    # save truncated memory
     sessions[session_id] = session_memory[-MAX_MEMORY:]
+
     return jsonify({'session_id': session_id, 'response': reply})
 
 # ------------------------------
