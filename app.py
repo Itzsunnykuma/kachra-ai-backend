@@ -15,11 +15,8 @@ sessions = {}  # { session_id: [ {role, content}, ... ] }
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 MODEL = "meta-llama/Llama-2-7b-chat-hf"
-API_URL = "https://api-inference.huggingface.co/v1/models/" + MODEL
-HEADERS = {
-    "Authorization": f"Bearer {HF_TOKEN}",
-    "Content-Type": "application/json"
-}
+API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
+HEADERS = {"Authorization": f"Bearer {HF_TOKEN}", "Content-Type": "application/json"}
 
 # ------------------------------
 # AMAZON AFFILIATE
@@ -28,23 +25,21 @@ ASSOCIATE_TAG = "itzsunnykum01-21"
 
 def convert_amazon_links_to_affiliate(text):
     """
-    Find all Amazon URLs in text and convert them to clickable affiliate links
-    using product name from URL if available.
+    Convert Amazon URLs in text to clickable affiliate links using product name.
     """
     pattern = r"https?://www\.amazon\.in/[^\s<>]+"
 
     def replace_link(match):
         url = match.group(0)
-        # Ensure tag is present
         if "tag=" not in url:
             sep = "&" if "?" in url else "?"
             url += f"{sep}tag={ASSOCIATE_TAG}"
 
-        # Extract product name from URL path
+        # Extract product name from URL
         segments = url.split("/")
         product_name = segments[-2] if len(segments) > 2 else segments[-1]
         product_name = re.sub(r"[-_]", " ", product_name)
-        product_name = re.sub(r"\?.*$", "", product_name)  # remove query params
+        product_name = re.sub(r"\?.*$", "", product_name)
         product_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
         return f'<a href="{url}" target="_blank" rel="noopener">{product_name}</a>'
 
@@ -71,34 +66,34 @@ NO markdown. Only HTML.
 # ------------------------------
 # LIVE NEWS FACT-CHECKING (optional)
 # ------------------------------
-SEARCH_API_KEY = os.getenv('SERPAPI_KEY', None)
-SEARCH_API_URL = 'https://serpapi.com/search.json'
+SEARCH_API_KEY = os.getenv("SERPAPI_KEY", None)
+SEARCH_API_URL = "https://serpapi.com/search.json"
 
 def fact_check_news(query, max_results=3):
     if not SEARCH_API_KEY:
         return "Fact-checking not enabled. API key missing."
     params = {
-        'engine': 'google',
-        'q': query,
-        'api_key': SEARCH_API_KEY,
-        'tbm': 'nws',
-        'num': max_results
+        "engine": "google",
+        "q": query,
+        "api_key": SEARCH_API_KEY,
+        "tbm": "nws",
+        "num": max_results
     }
     try:
         response = requests.get(SEARCH_API_URL, params=params, timeout=5)
-        results = response.json().get('news_results', [])
+        results = response.json().get("news_results", [])
         summaries = []
         for i, item in enumerate(results[:max_results]):
-            title = item.get('title', 'No title')
-            link = item.get('link', '')
-            snippet = item.get('snippet', '')
+            title = item.get("title", "No title")
+            link = item.get("link", "")
+            snippet = item.get("snippet", "")
             summaries.append(f"{i+1}. {title} - {snippet} <a href='{link}' target='_blank'>Source</a>")
         return "<br>".join(summaries) if summaries else "No credible sources found for this claim."
     except Exception as e:
         return f"Error during fact-checking: {str(e)}"
 
 def is_fact_check_query(user_input):
-    triggers = ['kya sach', 'verify', 'fact check', 'sahi hai', 'sach hai']
+    triggers = ["kya sach", "verify", "fact check", "sahi hai", "sach hai"]
     return any(trigger in user_input.lower() for trigger in triggers)
 
 # ------------------------------
@@ -111,21 +106,25 @@ def get_session(session_id=None):
     return session_id, sessions[session_id]
 
 # ------------------------------
-# HELPER: SAFE HF CALL
+# CALL HUGGINGFACE
 # ------------------------------
-def call_hf(messages, max_tokens=200):
+def call_hf(user_message, max_tokens=250):
     if not HF_TOKEN:
         return "HF_TOKEN not set. Kachra cannot reply 😢"
 
-    payload = {"inputs": messages, "parameters": {"max_new_tokens": max_tokens}}
+    payload = {
+        "inputs": user_message,
+        "parameters": {"max_new_tokens": max_tokens, "temperature": 0.7}
+    }
+
     try:
-        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
+        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=120)
         resp.raise_for_status()
         resp_json = resp.json()
-        if isinstance(resp_json, dict) and 'generated_text' in resp_json:
-            return resp_json['generated_text'] or "Hmm yaar, thoda dikkat hai, try again!"
+        if isinstance(resp_json, dict) and "generated_text" in resp_json:
+            return resp_json["generated_text"]
         elif isinstance(resp_json, list) and len(resp_json) > 0:
-            return resp_json[0].get('generated_text', "Hmm yaar, thoda dikkat hai, try again!")
+            return resp_json[0].get("generated_text", "Hmm yaar, thoda dikkat hai, try again!")
         else:
             return "Hmm yaar, thoda dikkat hai, try again!"
     except Exception as e:
@@ -134,40 +133,43 @@ def call_hf(messages, max_tokens=200):
 # ------------------------------
 # CHAT ENDPOINT
 # ------------------------------
-@app.route('/chat', methods=['POST'])
+@app.route("/chat", methods=["POST"])
 def chat():
     data = request.json
-    user_input = data.get('message', '').strip()
-    session_id = data.get('session_id')
+    user_input = data.get("message", "").strip()
+    session_id = data.get("session_id")
 
     session_id, session_memory = get_session(session_id)
 
     # Ensure system prompt is first
-    if not any(m['role'] == 'system' for m in session_memory):
+    if not any(m["role"] == "system" for m in session_memory):
         session_memory.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
     # Fact-check branch
     if is_fact_check_query(user_input) and SEARCH_API_KEY:
         fact_result = fact_check_news(user_input)
-        session_memory.append({'role': 'assistant', 'content': fact_result})
+        session_memory.append({"role": "assistant", "content": fact_result})
         sessions[session_id] = session_memory[-8:]
-        return jsonify({'session_id': session_id, 'response': fact_result})
+        return jsonify({"session_id": session_id, "response": fact_result})
 
-    # Build messages safely (last 8 exchanges + current user input)
-    MAX_MEMORY = 8
-    payload_messages = session_memory[-MAX_MEMORY:] + [{"role": "user", "content": user_input}]
+    # Build user message string for HF
+    user_message = SYSTEM_PROMPT + "\n\n"
+    for m in session_memory[-8:]:
+        if m["role"] != "system":
+            user_message += f'{m["role"].capitalize()}: {m["content"]}\n'
+    user_message += f"User: {user_input}\nAssistant:"
 
     # Call HF
-    reply = call_hf(payload_messages, max_tokens=250)
+    reply = call_hf(user_message, max_tokens=250)
 
-    # Convert Amazon links in the reply to clickable affiliate links with product names
+    # Convert Amazon links to affiliate links with product names
     reply = convert_amazon_links_to_affiliate(reply)
 
-    # Append to session memory and save
-    session_memory.append({'role': 'assistant', 'content': reply})
-    sessions[session_id] = session_memory[-MAX_MEMORY:]
+    # Append to session memory
+    session_memory.append({"role": "assistant", "content": reply})
+    sessions[session_id] = session_memory[-8:]
 
-    return jsonify({'session_id': session_id, 'response': reply})
+    return jsonify({"session_id": session_id, "response": reply})
 
 # ------------------------------
 # RUN APP
