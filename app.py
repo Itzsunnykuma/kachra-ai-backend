@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 import os
-import uuid
 import re
 
 app = Flask(__name__)
@@ -20,9 +19,9 @@ HEADERS = {
 }
 
 # ------------------------------
-# SESSION MEMORY
+# SINGLE SESSION MEMORY
 # ------------------------------
-sessions = {}  # {session_id: [ {role, content}, ... ]}
+session_memory = []  # Stores full conversation (user + assistant)
 
 # ------------------------------
 # SYSTEM PROMPT
@@ -57,7 +56,7 @@ def convert_amazon_links_to_affiliate(text):
             sep = "&" if "?" in url else "?"
             url += f"{sep}tag={ASSOCIATE_TAG}"
 
-        # Extract product name from URL
+        # Extract product name
         segments = url.split("/")
         product_name = segments[-2] if len(segments) > 2 else segments[-1]
         product_name = re.sub(r"[-_]", " ", product_name)
@@ -68,15 +67,6 @@ def convert_amazon_links_to_affiliate(text):
     return re.sub(pattern, replace_link, text)
 
 # ------------------------------
-# HELPER: GET OR CREATE SESSION
-# ------------------------------
-def get_session(session_id=None):
-    if not session_id or session_id not in sessions:
-        session_id = str(uuid.uuid4())
-        sessions[session_id] = []
-    return session_id, sessions[session_id]
-
-# ------------------------------
 # CHAT ENDPOINT
 # ------------------------------
 @app.route("/chat", methods=["POST"])
@@ -84,19 +74,15 @@ def chat():
     try:
         data = request.get_json()
         message = data.get("message", "")
-        session_id = data.get("session_id")
 
-        # Get session memory
-        session_id, session_memory = get_session(session_id)
-
-        # Ensure system prompt first
-        if not any(m['role'] == 'system' for m in session_memory):
-            session_memory.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+        # Initialize session with system prompt if empty
+        if not session_memory:
+            session_memory.append({"role": "system", "content": SYSTEM_PROMPT})
 
         # Append user message
         session_memory.append({"role": "user", "content": message})
 
-        # Prepare HF payload with full conversation
+        # Prepare payload for HF with full conversation
         payload = {
             "model": MODEL,
             "messages": session_memory,
@@ -114,17 +100,22 @@ def chat():
         # Convert Amazon links
         reply = convert_amazon_links_to_affiliate(reply)
 
-        # Append assistant reply to session memory
+        # Append assistant reply
         session_memory.append({"role": "assistant", "content": reply})
 
-        # Save full conversation
-        sessions[session_id] = session_memory
-
-        # Return session_id for client to continue conversation
-        return jsonify({"session_id": session_id, "reply": reply})
+        return jsonify({"reply": reply})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# ------------------------------
+# RESET CHAT ENDPOINT
+# ------------------------------
+@app.route("/reset", methods=["POST"])
+def reset_chat():
+    global session_memory
+    session_memory = []  # Clear full memory
+    return jsonify({"message": "Chat memory cleared! Start fresh with Kachra 😎"}), 200
 
 # ------------------------------
 # RUN APP
