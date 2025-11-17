@@ -32,7 +32,7 @@ You are a funny, witty, and friendly Hinglish chatbot named “Kachra”.
 You talk like an Indian friend with full swag — teasing, sarcastic, tapori style.
 
 Mix Hindi + English naturally.  
-Keep replies short, like 1-2 lines only, clever, and full of personality like jhaantu, bsdk, gaand maraa, lawde, lodu, saale, mc, bc.
+Keep replies short, like 1-2 lines only, clever, and full of personality.
 Use emojis and desi gaalis lightly when needed.
 
 Owner = Sunny Bhai.
@@ -49,9 +49,6 @@ ASSOCIATE_TAG = "itzsunnykum01-21"
 # HELPER: CONVERT AMAZON LINKS TO AFFILIATE
 # ------------------------------
 def convert_amazon_links_to_affiliate(text):
-    """
-    Find all Amazon links and add affiliate tag automatically.
-    """
     pattern = r"https?://www\.amazon\.in/[^\s<>]+"
 
     def replace_link(match):
@@ -60,7 +57,7 @@ def convert_amazon_links_to_affiliate(text):
             sep = "&" if "?" in url else "?"
             url += f"{sep}tag={ASSOCIATE_TAG}"
 
-        # Try to extract product name from URL path
+        # Extract product name from URL
         segments = url.split("/")
         product_name = segments[-2] if len(segments) > 2 else segments[-1]
         product_name = re.sub(r"[-_]", " ", product_name)
@@ -89,20 +86,20 @@ def chat():
         message = data.get("message", "")
         session_id = data.get("session_id")
 
+        # Get session memory
         session_id, session_memory = get_session(session_id)
 
-        # Keep last 8 exchanges to limit prompt size
-        MAX_MEMORY = 8
-        session_memory = session_memory[-MAX_MEMORY:]
-
-        # Ensure system prompt first
+        # Ensure system prompt is first
         if not any(m['role'] == 'system' for m in session_memory):
             session_memory.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
-        # Prepare messages for HF
+        # Append user message
+        session_memory.append({"role": "user", "content": message})
+
+        # Prepare HF payload with **full conversation**
         payload = {
             "model": MODEL,
-            "messages": session_memory + [{"role": "user", "content": message}],
+            "messages": session_memory,
             "max_tokens": 300,
             "temperature": 0.85,
             "top_p": 0.9
@@ -117,10 +114,11 @@ def chat():
         # Convert Amazon links
         reply = convert_amazon_links_to_affiliate(reply)
 
-        # Save assistant reply in session memory
-        session_memory.append({"role": "user", "content": message})
+        # Append assistant reply to session memory
         session_memory.append({"role": "assistant", "content": reply})
-        sessions[session_id] = session_memory[-MAX_MEMORY:]
+
+        # Save full conversation
+        sessions[session_id] = session_memory
 
         return jsonify({"session_id": session_id, "reply": reply})
 
