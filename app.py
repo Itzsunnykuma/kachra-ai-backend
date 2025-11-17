@@ -11,7 +11,7 @@ CORS(app)
 # HF MODEL CONFIG
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://router.huggingface.co/v1/chat/completions"
+API_URL = "[https://router.huggingface.co/v1/chat/completions](https://router.huggingface.co/v1/chat/completions)"
 MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
@@ -45,18 +45,26 @@ Whenever you mention a product, always give Amazon India links containing the ta
 ASSOCIATE_TAG = "itzsunnykum01-21"
 
 # ------------------------------
-# HELPER: CONVERT AMAZON LINKS TO AFFILIATE (Updated Logic)
+# HELPER: CONVERT AMAZON LINKS TO AFFILIATE (FIXED)
 # ------------------------------
 def convert_amazon_links_to_affiliate(text):
     """
     Finds all raw Amazon India URLs in the text and converts them into 
     clickable HTML affiliate links with the required tag.
+    
+    FIX: URL cleaning added to remove trailing slashes and parentheses 
+    that break the query string structure.
     """
     # Regex to find any standard Amazon India URL
     pattern = r"(https?://www\.amazon\.in/[^\s<>\"',]+)"
 
     def replace_link(match):
         url = match.group(0)
+        
+        # CRITICAL FIX: Clean up common trailing non-URL characters 
+        # (like '/', ')', or ',' which the LLM or regex might include)
+        # before we attempt to add the query parameter.
+        url = url.rstrip('/),')
         
         # 1. Ensure the affiliate tag is present
         if ASSOCIATE_TAG not in url:
@@ -68,7 +76,6 @@ def convert_amazon_links_to_affiliate(text):
         link_text = "View Product on Amazon"
         
         # 3. Return the clickable HTML anchor tag
-        # target="_blank" is used for opening the external link in a new tab
         return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{link_text}</a>'
 
     # Use re.sub to replace all found raw URLs with the HTML link structure
