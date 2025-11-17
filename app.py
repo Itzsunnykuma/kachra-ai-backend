@@ -74,8 +74,8 @@ Tone:
 - No heavy profanity
 
 Shopping rule:
-ALWAYS share Amazon India affiliate links in this format:
-that includes amazon associate id: itzsunnykum01-21" target="_blank" rel="noopener">PRODUCT NAME</a>
+ALWAYS show Amazon India affiliate links in this format:
+<a href="AMAZON_LINK&tag=itzsunnykum01-21" target="_blank" rel="noopener">PRODUCT NAME</a>
 
 NO markdown. Only HTML.
 """
@@ -83,7 +83,7 @@ NO markdown. Only HTML.
 # ------------------------------
 # LIVE NEWS FACT-CHECKING FUNCTIONS
 # ------------------------------
-SEARCH_API_KEY = os.getenv('SERPAPI_KEY', 'YOUR_SERPAPI_KEY')  # Replace with actual API key
+SEARCH_API_KEY = os.getenv('SERPAPI_KEY', None)  # Replace with your API key
 SEARCH_API_URL = 'https://serpapi.com/search.json'
 
 def fact_check_news(query, max_results=3):
@@ -135,6 +135,7 @@ def get_session(session_id=None):
 # AMAZON PA-API SIGNING (EXISTING)
 # ------------------------------
 def sign_paapi_request(access_key, secret_key, payload_json):
+    # Existing signing logic...
     method = "POST"
     service = "ProductAdvertisingAPI"
     host = AMZ_HOST
@@ -165,7 +166,6 @@ def sign_paapi_request(access_key, secret_key, payload_json):
         signed_headers,
         payload_hash
     ])
-    # You can continue existing signing logic if needed here...
     return canonical_request
 
 # ------------------------------
@@ -179,16 +179,20 @@ def chat():
 
     session_id, session_memory = get_session(session_id)
 
-    # Fact-check handling
-    if is_fact_check_query(user_input):
+    # Ensure system prompt is always first
+    if not any(m['role'] == 'system' for m in session_memory):
+        session_memory.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+
+    # Fact-check handling only if API key exists
+    if is_fact_check_query(user_input) and SEARCH_API_KEY:
         fact_result = fact_check_news(user_input)
         session_memory.append({'role': 'assistant', 'content': fact_result})
         return jsonify({'session_id': session_id, 'response': fact_result})
 
-    # Otherwise, use existing Kachra LLM logic (HuggingFace call)
+    # HuggingFace payload (safe)
     payload = {
         "model": MODEL,
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + session_memory + [{"role": "user", "content": user_input}],
+        "messages": session_memory + [{"role": "user", "content": user_input}],
         "max_tokens": 500,
         "temperature": 0.7
     }
