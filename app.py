@@ -23,15 +23,10 @@ HEADERS = {
 }
 
 # ------------------------------
-# AMAZON PA-API CONFIG
-# ------------------------------
-ACCESS_KEY = os.getenv("AMZ_ACCESS_KEY", "XXXXX")
-SECRET_KEY = os.getenv("AMZ_SECRET_KEY", "XXXXX")
-ASSOCIATE_TAG = os.getenv("AMZ_ASSOCIATE_TAG", "itzsunnykum01-21")
-
-# ------------------------------
 # AMAZON AFFILIATE LINK BUILDER
 # ------------------------------
+ASSOCIATE_TAG = os.getenv("AMZ_ASSOCIATE_TAG", "itzsunnykum01-21")
+
 def make_clickable_link(url, product_name="Buy on Amazon"):
     if not url:
         return url
@@ -67,7 +62,7 @@ NO markdown. Only HTML.
 """
 
 # ------------------------------
-# LIVE NEWS FACT-CHECKING FUNCTIONS
+# LIVE NEWS FACT-CHECKING
 # ------------------------------
 SEARCH_API_KEY = os.getenv('SERPAPI_KEY', None)
 SEARCH_API_URL = 'https://serpapi.com/search.json'
@@ -119,25 +114,25 @@ def chat():
 
     session_id, session_memory = get_session(session_id)
 
-    # Limit memory to last 8 exchanges
-    MAX_MEMORY = 8
-    session_memory = session_memory[-MAX_MEMORY:]
-
     # Ensure system prompt is first
     if not any(m['role'] == 'system' for m in session_memory):
         session_memory.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
-    # Fact-check shortcut
+    # Fact-check branch
     if is_fact_check_query(user_input) and SEARCH_API_KEY:
         fact_result = fact_check_news(user_input)
         session_memory.append({'role': 'assistant', 'content': fact_result})
-        sessions[session_id] = session_memory
+        # save truncated memory
+        sessions[session_id] = session_memory[-8:]
         return jsonify({'session_id': session_id, 'response': fact_result})
 
-    # Construct payload
+    # Limit memory to last 8 exchanges + current user input
+    MAX_MEMORY = 8
+    payload_messages = session_memory[-MAX_MEMORY:] + [{"role": "user", "content": user_input}]
+
     payload = {
         "model": MODEL,
-        "messages": session_memory + [{"role": "user", "content": user_input}],
+        "messages": payload_messages,
         "max_new_tokens": 300,
         "temperature": 0.7
     }
@@ -146,15 +141,16 @@ def chat():
         resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=90)
         resp.raise_for_status()
         resp_json = resp.json()
-        reply = resp_json.get('choices', [{}])[0].get('message', {}).get('content', '')
-        if not reply:
+        if 'choices' in resp_json and len(resp_json['choices']) > 0:
+            reply = resp_json['choices'][0]['message']['content']
+        else:
             reply = "Hmm yaar, thoda dikkat hai, try again!"
     except Exception as e:
         reply = f"Error generating response: {str(e)}"
 
     session_memory.append({'role': 'assistant', 'content': reply})
-    sessions[session_id] = session_memory  # save back
-
+    # save truncated memory
+    sessions[session_id] = session_memory[-MAX_MEMORY:]
     return jsonify({'session_id': session_id, 'response': reply})
 
 # ------------------------------
