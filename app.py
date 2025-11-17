@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -11,7 +12,7 @@ CORS(app)
 # HF MODEL CONFIG
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "[https://router.huggingface.co/v1/chat/completions](https://router.huggingface.co/v1/chat/completions)"
+API_URL = "https://router.huggingface.co/v1/chat/completions"
 MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
@@ -21,7 +22,7 @@ HEADERS = {
 # ------------------------------
 # SINGLE SESSION MEMORY
 # ------------------------------
-session_memory = [] # Stores full conversation (user + assistant)
+session_memory = []  # Stores full conversation (user + assistant)
 
 # ------------------------------
 # SYSTEM PROMPT
@@ -45,40 +46,25 @@ Whenever you mention a product, always give Amazon India links containing the ta
 ASSOCIATE_TAG = "itzsunnykum01-21"
 
 # ------------------------------
-# HELPER: CONVERT AMAZON LINKS TO AFFILIATE (FIXED)
+# HELPER: CONVERT AMAZON LINKS TO AFFILIATE
 # ------------------------------
 def convert_amazon_links_to_affiliate(text):
-    """
-    Finds all raw Amazon India URLs in the text and converts them into 
-    clickable HTML affiliate links with the required tag.
-    
-    FIX: URL cleaning added to remove trailing slashes and parentheses 
-    that break the query string structure.
-    """
-    # Regex to find any standard Amazon India URL
-    pattern = r"(https?://www\.amazon\.in/[^\s<>\"',]+)"
+    pattern = r"https?://www\.amazon\.in/[^\s<>]+"
 
     def replace_link(match):
         url = match.group(0)
-        
-        # CRITICAL FIX: Clean up common trailing non-URL characters 
-        # (like '/', ')', or ',' which the LLM or regex might include)
-        # before we attempt to add the query parameter.
-        url = url.rstrip('/),')
-        
-        # 1. Ensure the affiliate tag is present
-        if ASSOCIATE_TAG not in url:
-            # Determine if a query separator (& or ?) is needed
+        if "tag=" not in url:
             sep = "&" if "?" in url else "?"
             url += f"{sep}tag={ASSOCIATE_TAG}"
-        
-        # 2. Define the link text. We use a generic text for robustness.
-        link_text = "View Product on Amazon"
-        
-        # 3. Return the clickable HTML anchor tag
-        return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{link_text}</a>'
 
-    # Use re.sub to replace all found raw URLs with the HTML link structure
+        # Extract product name
+        segments = url.split("/")
+        product_name = segments[-2] if len(segments) > 2 else segments[-1]
+        product_name = re.sub(r"[-_]", " ", product_name)
+        product_name = re.sub(r"\?.*$", "", product_name)
+        product_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
+        return f'<a href="{url}" target="_blank" rel="noopener">{product_name}</a>'
+
     return re.sub(pattern, replace_link, text)
 
 # ------------------------------
@@ -106,7 +92,6 @@ def chat():
             "top_p": 0.9
         }
 
-        # NOTE: Using requests library for external API call (HF)
         res = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
         if res.status_code != 200:
             return jsonify({"error": res.text}), 500
@@ -122,8 +107,6 @@ def chat():
         return jsonify({"reply": reply})
 
     except Exception as e:
-        # In a production app, you might want more detailed logging here
-        print(f"An error occurred: {e}")
         return jsonify({"error": str(e)}), 500
 
 # ------------------------------
