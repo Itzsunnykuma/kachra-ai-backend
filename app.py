@@ -93,7 +93,7 @@ def chat():
                 time.sleep(2)
         else:
             # Fallback if HF is unreachable
-            reply = "Sunny bhai, kabhi kabhi server ki aukaat nahin hoti, aur main unavailable ho jaata hoon 😂"
+            reply = "Server Issue, kabhi kabhi server ki aukaat nahin hoti, aur main unavailable ho jaata hoon 😂, kuchh der bar try karo"
 
         # Append assistant reply
         session_memory.append({"role": "assistant", "content": reply})
