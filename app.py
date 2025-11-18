@@ -1,68 +1,128 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
 import os
+import re
+import time
 
 app = Flask(__name__)
+CORS(app)
 
-# Hugging Face Token and Model
-HF_TOKEN = os.getenv("HF_TOKEN", "your_huggingface_write_token")
-MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
-API_URL = f"https://router.huggingface.co/v1/chat/completions"
-
+# ------------------------------
+# HF MODEL CONFIG
+# ------------------------------
+HF_TOKEN = os.getenv("HF_TOKEN")
+API_URL = "https://router.huggingface.co/v1/chat/completions"
+MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
 }
 
-# ✅ System prompt that defines Kachra's personality and behavior
+# ------------------------------
+# SESSION MEMORY (LIMITED)
+# ------------------------------
+MAX_MEMORY = 6  # Keep last 6 messages (user + assistant)
+session_memory = []
+
+# ------------------------------
+# SYSTEM PROMPT
+# ------------------------------
 SYSTEM_PROMPT = """
-You are a funny, witty, and friendly Hinglish chatbot named “Kachra”.
-You talk like an Indian friend with full swag and humor — sometimes teasing, sometimes sarcastic, but always fun.
-Mix Hindi and English naturally in every sentence. Use emojis and desi expressions like tapori.
+You are a funny, witty, and friendly Hinglish chatbot named "Kachra".
+Talk like an Indian friend with full swag — teasing, sarcastic, tapori style.
 
-Keep replies short (1–2 lines), clever, and full of personality — using words like jhaantu, bsdk, gaand mara, lawde, lodu, saale.
-Reply with Indian GIFs sometimes from tenor.com if contextually fun.
+Mix Hindi + English naturally. Keep replies short (1-2 lines), clever, with emojis.
 
-If user asks for product suggestions, include 2–4 best-rated Amazon India product links, each with affiliate tag '&tag=itzsunnykum01-21'.
-Use format:
-Here are some great options 👇
-• [Product Name 1](https://www.amazon.in/s?k=product+name+1&tag=itzsunnykum01-21)
-• [Product Name 2](https://www.amazon.in/s?k=product+name+2&tag=itzsunnykum01-21)
-
-If user asks for help, comparisons, or advice — also include those links naturally.
-Never send plain Amazon links without the affiliate tag.
-
-Avoid sounding robotic or formal. Chat like a funny Indian buddy.
+Owner = Sunny.
 """
 
+ASSOCIATE_TAG = "itzsunnykum01-21"
+
+# ------------------------------
+# HELPER: CONVERT AMAZON LINKS TO AFFILIATE
+# ------------------------------
+def convert_amazon_links_to_affiliate(text):
+    pattern = r"https?://www\.amazon\.in/[^\s<>]+"
+
+    def replace_link(match):
+        url = match.group(0)
+        if "tag=" not in url:
+            sep = "&" if "?" in url else "?"
+            url += f"{sep}tag={ASSOCIATE_TAG}"
+        segments = url.split("/")
+        product_name = segments[-2] if len(segments) > 2 else segments[-1]
+        product_name = re.sub(r"[-_]", " ", product_name)
+        product_name = re.sub(r"\?.*$", "", product_name)
+        product_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
+        return f'<a href="{url}" target="_blank" rel="noopener">{product_name}</a>'
+    return re.sub(pattern, replace_link, text)
+
+# ------------------------------
+# CHAT ENDPOINT
+# ------------------------------
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
-        user_message = data.get("message", "")
+        message = data.get("message", "")
+
+        # Initialize session
+        if not session_memory:
+            session_memory.append({"role": "system", "content": SYSTEM_PROMPT})
+
+        # Append user message
+        session_memory.append({"role": "user", "content": message})
+
+        # Keep only last N messages to reduce memory overload
+        conversation = session_memory[-MAX_MEMORY*2:]
 
         payload = {
             "model": MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message}
-            ],
-            "max_tokens": 500,
-            "temperature": 0.9
+            "messages": conversation,
+            "max_tokens": 300,
+            "temperature": 0.85,
+            "top_p": 0.9
         }
 
-        response = requests.post(API_URL, headers=HEADERS, json=payload)
-        if response.status_code != 200:
-            return jsonify({"error": f"Failed to connect to Hugging Face", "details": response.text}), 500
+        # Retry logic
+        retries = 3
+        for attempt in range(retries):
+            try:
+                res = requests.post(API_URL, headers=HEADERS, json=payload, timeout=90)
+                if res.status_code == 200:
+                    reply = res.json()["choices"][0]["message"]["content"]
+                    break
+                else:
+                    reply = f"HF API Error: {res.text}"
+            except Exception as e:
+                reply = f"Attempt {attempt+1} failed: {str(e)}"
+                time.sleep(2)
+        else:
+            return jsonify({"error": "Bot unreachable after retries"}), 500
 
-        result = response.json()
-        ai_reply = result["choices"][0]["message"]["content"]
+        # Convert Amazon links
+        reply = convert_amazon_links_to_affiliate(reply)
 
-        return jsonify({"reply": ai_reply})
+        # Append assistant reply
+        session_memory.append({"role": "assistant", "content": reply})
+
+        return jsonify({"reply": reply})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ------------------------------
+# RESET CHAT ENDPOINT
+# ------------------------------
+@app.route("/reset", methods=["POST"])
+def reset_chat():
+    global session_memory
+    session_memory = []
+    return jsonify({"message": "Chat memory cleared! Start fresh with Kachra 😎"}), 200
 
+# ------------------------------
+# RUN APP
+# ------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=10000, debug=True)
