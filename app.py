@@ -8,121 +8,133 @@ import time
 app = Flask(__name__)
 CORS(app)
 
-# ------------------------------
-# HF MODEL CONFIG
-# ------------------------------
+# ---------------------------------
+# Hugging Face Config
+# ---------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
 API_URL = "https://router.huggingface.co/v1/chat/completions"
-MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
+MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"   # fastest + smallest
+
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
 }
 
-# ------------------------------
-# SESSION MEMORY (LIMITED)
-# ------------------------------
-MAX_MEMORY = 6  # Keep last 6 messages (user + assistant)
+# ---------------------------------
+# Stable Memory
+# ---------------------------------
+MAX_HISTORY = 8              # More stable than 6
 session_memory = []
 
-# ------------------------------
-# SYSTEM PROMPT
-# ------------------------------
+# ---------------------------------
+# System Prompt
+# ---------------------------------
 SYSTEM_PROMPT = """
-You are a funny, witty, and friendly Hinglish chatbot named "Kachra".
-Talk like an Indian friend with full swag — teasing, sarcastic, tapori style.
-
-Mix Hindi + English naturally. Keep replies short (1-2 lines), clever, with emojis.
-
+You are a funny Hinglish chatbot named Kachra 😂.
+Talk like an Indian friend – short, witty, savage replies (1–2 lines max).
 Owner = Sunny.
 """
 
 ASSOCIATE_TAG = "itzsunnykum01-21"
 
-# ------------------------------
-# HELPER: CONVERT AMAZON LINKS TO AFFILIATE
-# ------------------------------
+# ---------------------------------
+# Amazon Link Converter
+# ---------------------------------
 def convert_amazon_links_to_affiliate(text):
     pattern = r"https?://www\.amazon\.in/[^\s<>]+"
 
-    def replace_link(match):
+    def replace(match):
         url = match.group(0)
         if "tag=" not in url:
-            sep = "&" if "?" in url else "?"
-            url += f"{sep}tag={ASSOCIATE_TAG}"
-        segments = url.split("/")
-        product_name = segments[-2] if len(segments) > 2 else segments[-1]
-        product_name = re.sub(r"[-_]", " ", product_name)
-        product_name = re.sub(r"\?.*$", "", product_name)
-        product_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
-        return f'<a href="{url}" target="_blank" rel="noopener">{product_name}</a>'
-    return re.sub(pattern, replace_link, text)
+            url += ("&" if "?" in url else "?") + f"tag={ASSOCIATE_TAG}"
+        name = url.split("/")[-2].replace("-", " ")
+        name = re.sub(r"\?.*$", "", name)
+        name = (name[:50] + "...") if len(name) > 50 else name
+        return f'<a href="{url}" target="_blank">{name}</a>'
 
-# ------------------------------
-# CHAT ENDPOINT
-# ------------------------------
+    return re.sub(pattern, replace, text)
+
+# ---------------------------------
+# Clean malformed responses
+# ---------------------------------
+def clean_text(text):
+    if not isinstance(text, str):
+        return "Oops, something went glitchy 😅"
+    return text.replace("\u0000", "").strip()
+
+# ---------------------------------
+# Chat Endpoint
+# ---------------------------------
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
-        message = data.get("message", "")
+        user_msg = data.get("message", "")
 
-        # Initialize session
+        if not HF_TOKEN:
+            return jsonify({"reply": "Missing HF_TOKEN 🙄"}), 500
+
+        # Initialize memory with system prompt
         if not session_memory:
             session_memory.append({"role": "system", "content": SYSTEM_PROMPT})
 
-        # Append user message
-        session_memory.append({"role": "user", "content": message})
+        # Add user message
+        session_memory.append({"role": "user", "content": user_msg})
 
-        # Keep only last N messages to reduce memory overload
-        conversation = session_memory[-MAX_MEMORY*2:]
+        # Trim conversation (stability upgrade)
+        conversation = session_memory[-MAX_HISTORY:]
 
         payload = {
             "model": MODEL,
             "messages": conversation,
-            "max_tokens": 300,
-            "temperature": 0.85,
+            "max_tokens": 250,
+            "temperature": 0.75,     # more stable
             "top_p": 0.9
         }
 
-        # Retry logic
-        retries = 3
-        for attempt in range(retries):
+        # ---------------------------
+        # Retry Logic + Failover Mode
+        # ---------------------------
+        reply = None
+        for attempt in range(3):
             try:
-                res = requests.post(API_URL, headers=HEADERS, json=payload, timeout=90)
-                if res.status_code == 200:
-                    reply = res.json()["choices"][0]["message"]["content"]
-                    break
-                else:
-                    reply = f"HF API Error: {res.text}"
-            except Exception as e:
-                reply = f"Attempt {attempt+1} failed: {str(e)}"
-                time.sleep(2)
-        else:
-            return jsonify({"error": "Bot unreachable after retries"}), 500
+                r = requests.post(API_URL, headers=HEADERS, json=payload, timeout=40)
 
-        # Convert Amazon links
+                if r.status_code == 200:
+                    reply = r.json()["choices"][0]["message"]["content"]
+                    break
+
+                # If overloaded → fallback to safer mode
+                payload["temperature"] = 0.3
+                payload["top_p"] = 0.7
+
+            except Exception:
+                time.sleep(1.5)
+
+        if not reply:
+            reply = "Arre router ka mood kharab hai 😭 thoda der baad try karo."
+
+        reply = clean_text(reply)
         reply = convert_amazon_links_to_affiliate(reply)
 
-        # Append assistant reply
         session_memory.append({"role": "assistant", "content": reply})
 
         return jsonify({"reply": reply})
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"reply": f"Crash prevented: {str(e)}"}), 200
 
-# ------------------------------
-# RESET CHAT ENDPOINT
-# ------------------------------
+# ---------------------------------
+# Reset
+# ---------------------------------
 @app.route("/reset", methods=["POST"])
-def reset_chat():
+def reset():
     global session_memory
     session_memory = []
-    return jsonify({"message": "Chat memory cleared! Start fresh with Kachra 😎"}), 200
+    return jsonify({"message": "Chat reset! Kachra ready 😎"}), 200
 
-# ------------------------------
-# RUN APP
-# ------------------------------
+# ---------------------------------
+# Run
+# ---------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, debug=True)
