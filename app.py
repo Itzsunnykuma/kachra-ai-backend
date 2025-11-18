@@ -2,18 +2,20 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 import os
-import re
 import time
+import re
 from typing import Dict, List
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
 # ------------------------------
-# HF CONFIG (FIXED ENDPOINT)
+# HF CONFIG
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
 MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
+
+# Correct endpoint (fully working)
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
 
 HEADERS = {
@@ -24,31 +26,51 @@ HEADERS = {
 # ------------------------------
 # MEMORY
 # ------------------------------
-MAX_HISTORY = 8
+MAX_HISTORY = 6
 session_store: Dict[str, List[Dict[str, str]]] = {}
 
-SYSTEM_PROMPT = {
-    "role": "system",
-    "content": "You are Kachra 😂, a funny Hinglish chatbot. Reply short, witty, Indian style."
-}
+# ------------------------------
+# SYSTEM PROMPT
+# ------------------------------
+SYSTEM_PROMPT = """You are Kachra 😂 — a funny, savage Hinglish Indian friend.
+Reply in 1–2 lines, witty and humorous.
+"""
+
+ASSOCIATE_TAG = "itzsunnykum01-21"
 
 # ------------------------------
 # HELPERS
 # ------------------------------
-def clean_text(t):
+def convert_amazon_links(text):
+    pattern = r"https?://www\.amazon\.in/[^\s<>]+"
+
+    def rep(match):
+        url = match.group(0)
+        if "tag=" not in url:
+            url += ("&" if "?" in url else "?") + f"tag={ASSOCIATE_TAG}"
+        name = url.split("/")[-2].replace("-", " ")
+        name = re.sub(r"\?.*$", "", name)
+        return f'<a href="{url}" target="_blank">{name}</a>'
+
+    return re.sub(pattern, rep, text)
+
+
+def clean(t):
     if not isinstance(t, str):
-        return "Kuch gadbad ho gaya 😅"
+        return "Error 😅"
     return t.replace("\u0000", "").strip()
 
-def get_session_messages(session_id):
-    if session_id not in session_store:
-        session_store[session_id] = [SYSTEM_PROMPT.copy()]
-    return session_store[session_id]
 
-def trim_history(messages):
-    system = messages[:1]
-    rest = messages[1:]
-    return system + rest[-MAX_HISTORY:]
+def build_prompt(history: List[Dict[str, str]]) -> str:
+    final = SYSTEM_PROMPT + "\n\n"
+    for m in history[-MAX_HISTORY:]:
+        if m["role"] == "user":
+            final += f"User: {m['content']}\n"
+        if m["role"] == "assistant":
+            final += f"Kachra: {m['content']}\n"
+    final += "Kachra: "
+    return final
+
 
 # ------------------------------
 # ROOT
@@ -64,68 +86,87 @@ def home():
 def chat():
     try:
         data = request.get_json(force=True) or {}
-        msg = (data.get("message") or "").strip()
-        session_id = data.get("session_id") or "anon"
+        user_msg = (data.get("message") or "").strip()
+        session_id = data.get("session_id") or "default"
 
         if not HF_TOKEN:
-            return jsonify({"reply": "HF token missing 🤦"}), 500
+            return jsonify({"reply": "HF token missing!"}), 500
 
-        if not msg:
-            return jsonify({"reply": "Kya bolu? Kuch to likh 😄"}), 400
+        if not user_msg:
+            return jsonify({"reply": "Kuch to bol yaar 😄"}), 400
 
-        # Build conversation history
-        messages = get_session_messages(session_id)
-        messages.append({"role": "user", "content": msg})
-        session_store[session_id] = trim_history(messages)
+        # load / init session
+        if session_id not in session_store:
+            session_store[session_id] = []
 
-        # HF expects "inputs" not "messages"
+        session_store[session_id].append({"role": "user", "content": user_msg})
+
+        # build model prompt
+        prompt = build_prompt(session_store[session_id])
+
         payload = {
-            "inputs": {
-                "past_user_inputs": [
-                    m["content"] for m in session_store[session_id] if m["role"] == "user"
-                ],
-                "generated_responses": [
-                    m["content"] for m in session_store[session_id] if m["role"] == "assistant"
-                ],
-                "text": msg
-            },
+            "inputs": prompt,
             "parameters": {
-                "max_new_tokens": 200,
-                "temperature": 0.75,
+                "max_new_tokens": 180,
+                "temperature": 0.7,
                 "top_p": 0.9,
+                "return_full_text": False
             }
         }
 
-        r = requests.post(API_URL, headers=HEADERS, json=payload, timeout=45)
+        # retry logic
+        reply_text = None
+        for retry in [1, 2, 3]:
+            try:
+                r = requests.post(API_URL, headers=HEADERS, json=payload, timeout=40)
 
-        if r.status_code != 200:
-            return jsonify({"reply": f"HF error {r.status_code}"}), 500
+                if r.status_code == 503:        # model sleeping
+                    time.sleep(2)
+                    continue
 
-        out = r.json()
+                if r.status_code != 200:
+                    return jsonify({"reply": f"HF error {r.status_code}"}), 500
 
-        # HF returns a list of dicts
-        reply_text = out[0]["generated_text"] if isinstance(out, list) else out
+                out = r.json()
 
-        reply_text = clean_text(reply_text)
+                # list output style
+                if isinstance(out, list) and "generated_text" in out[0]:
+                    reply_text = out[0]["generated_text"]
 
-        # Save assistant reply
-        messages = get_session_messages(session_id)
-        messages.append({"role": "assistant", "content": reply_text})
-        session_store[session_id] = trim_history(messages)
+                # dict output style
+                elif "generated_text" in out:
+                    reply_text = out["generated_text"]
+
+                break
+
+            except Exception:
+                time.sleep(1)
+                continue
+
+        if not reply_text:
+            reply_text = "Aaj model ka mood off hai 😭"
+
+        reply_text = clean(reply_text)
+        reply_text = convert_amazon_links(reply_text)
+
+        # save to memory
+        session_store[session_id].append({"role": "assistant", "content": reply_text})
 
         return jsonify({"reply": reply_text})
 
     except Exception as e:
-        return jsonify({"reply": f"Backend error 😅: {e}"}), 200
+        return jsonify({"reply": f"Kachra saved from crash 😅: {e}"}), 200
+
 
 # ------------------------------
 # RESET
 # ------------------------------
 @app.route("/reset", methods=["POST"])
 def reset():
-    sid = (request.get_json(force=True) or {}).get("session_id") or "anon"
+    sid = (request.get_json(force=True) or {}).get("session_id") or "default"
     session_store.pop(sid, None)
-    return jsonify({"message": "Chat reset!"})
+    return jsonify({"message": "Chat reset!"}), 200
+
 
 # ------------------------------
 # RUN (LOCAL ONLY)
