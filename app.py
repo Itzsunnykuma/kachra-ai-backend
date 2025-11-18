@@ -6,8 +6,11 @@ import re
 import time
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
+# ------------------------------
+# HF CONFIG
+# ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
 MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
@@ -18,10 +21,10 @@ HEADERS = {
 }
 
 # ------------------------------
-# MEMORY (with stability trimming)
+# MEMORY (trimmed for stability)
 # ------------------------------
 session_memory = []
-MAX_MEMORY = 10  # prevents runaway memory (stability, not logic change)
+MAX_MEMORY = 10
 
 SYSTEM_PROMPT = """
 You are a funny, witty, and friendly Hinglish chatbot named “Kachra”.
@@ -37,6 +40,9 @@ append `&tag=itzsunnykum01-21`.
 
 ASSOCIATE_TAG = "itzsunnykum01-21"
 
+# ------------------------------
+# AMAZON AFFILIATE LINK MAKER
+# ------------------------------
 def convert_amazon_links_to_affiliate(text):
     pattern = r"https?://www\.amazon\.in/[^\s<>]+"
 
@@ -51,7 +57,7 @@ def convert_amazon_links_to_affiliate(text):
     return re.sub(pattern, replace_link, text)
 
 # ------------------------------
-# VERY STABLE REQUEST FUNCTION
+# SUPER STABLE HF REQUEST
 # ------------------------------
 def stable_hf_request(payload):
     MAX_RETRIES = 5
@@ -63,12 +69,11 @@ def stable_hf_request(payload):
                 API_URL,
                 headers=HEADERS,
                 json=payload,
-                timeout=150,          # Highest stable timeout
+                timeout=150,
             )
 
-            # HuggingFace warm-up status
             if response.status_code in [503, 504] or "loading" in response.text.lower():
-                time.sleep(RETRY_DELAY + attempt * 2)  # exponential backoff
+                time.sleep(RETRY_DELAY + attempt * 2)
                 continue
 
             return response
@@ -81,7 +86,15 @@ def stable_hf_request(payload):
             time.sleep(RETRY_DELAY)
             continue
 
-    return None  # total failure fallback
+    return None
+
+
+# ------------------------------
+# HEALTH CHECK (REQUIRED FOR RENDER)
+# ------------------------------
+@app.route("/")
+def home():
+    return "OK", 200
 
 
 # ------------------------------
@@ -96,11 +109,11 @@ def chat():
         if not user_msg:
             return jsonify({"error": "Empty message"}), 400
 
-        # Trim memory for stability (without changing behavior)
+        # Trim memory
         if len(session_memory) > MAX_MEMORY:
             session_memory[:] = session_memory[-MAX_MEMORY:]
 
-        # Build prompt
+        # Build full prompt
         full_prompt = SYSTEM_PROMPT + "\n\n"
         for msg in session_memory:
             full_prompt += f"{msg['role'].upper()}: {msg['content']}\n"
@@ -116,7 +129,6 @@ def chat():
             }
         }
 
-        # Ultra-stable call
         res = stable_hf_request(payload)
 
         if res is None:
@@ -125,7 +137,6 @@ def chat():
         if res.status_code != 200:
             return jsonify({"error": res.text}), 500
 
-        # Clean generated text safely
         try:
             generated = res.json()[0]["generated_text"]
         except:
@@ -133,7 +144,7 @@ def chat():
 
         reply = convert_amazon_links_to_affiliate(generated)
 
-        # Store memory
+        # Save conversation
         session_memory.append({"role": "user", "content": user_msg})
         session_memory.append({"role": "assistant", "content": reply})
 
@@ -152,6 +163,9 @@ def reset_chat():
     return jsonify({"message": "Chat reset successfully"}), 200
 
 
+# ------------------------------
+# RUN APP (RENDER-COMPATIBLE)
+# ------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-app.run(host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 5000))  # REQUIRED for Render
+    app.run(host="0.0.0.0", port=port)
