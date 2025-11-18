@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 import os
-import re
 import time
 
 app = Flask(__name__)
@@ -37,27 +36,6 @@ Mix Hindi + English naturally. Keep replies short (1-2 lines), clever, with emoj
 Owner = Sunny.
 """
 
-ASSOCIATE_TAG = "itzsunnykum01-21"
-
-# ------------------------------
-# HELPER: CONVERT AMAZON LINKS TO AFFILIATE
-# ------------------------------
-def convert_amazon_links_to_affiliate(text):
-    pattern = r"https?://www\.amazon\.in/[^\s<>]+"
-
-    def replace_link(match):
-        url = match.group(0)
-        if "tag=" not in url:
-            sep = "&" if "?" in url else "?"
-            url += f"{sep}tag={ASSOCIATE_TAG}"
-        segments = url.split("/")
-        product_name = segments[-2] if len(segments) > 2 else segments[-1]
-        product_name = re.sub(r"[-_]", " ", product_name)
-        product_name = re.sub(r"\?.*$", "", product_name)
-        product_name = product_name[:50] + "..." if len(product_name) > 50 else product_name
-        return f'<a href="{url}" target="_blank" rel="noopener">{product_name}</a>'
-    return re.sub(pattern, replace_link, text)
-
 # ------------------------------
 # HELPER: GREETING CHECK
 # ------------------------------
@@ -78,7 +56,7 @@ def chat():
         if not message:
             return jsonify({"reply": "Bhai, kuch type karo 😅"}), 200
 
-        # Handle simple greetings without calling HF
+        # Handle simple greetings locally
         if is_greeting(message):
             return jsonify({"reply": "Heyy! Kya scene hai? 😎"}), 200
 
@@ -114,10 +92,8 @@ def chat():
                 reply = f"Attempt {attempt+1} failed: {str(e)}"
                 time.sleep(2)
         else:
-            return jsonify({"error": "Bot unreachable after retries"}), 500
-
-        # Convert Amazon links
-        reply = convert_amazon_links_to_affiliate(reply)
+            # Fallback if HF is unreachable
+            reply = "Sunny bhai, kabhi kabhi server ki aukaat nahin hoti, aur main unavailable ho jaata hoon 😂"
 
         # Append assistant reply
         session_memory.append({"role": "assistant", "content": reply})
