@@ -63,6 +63,13 @@ def clean_text(text):
     return text.replace("\u0000", "").strip()
 
 # ---------------------------------
+# HOME ROUTE (Added as requested)
+# ---------------------------------
+@app.route("/")
+def home():
+    return "Kachra AI backend is running!"
+
+# ---------------------------------
 # Chat Endpoint
 # ---------------------------------
 @app.route("/chat", methods=["POST"])
