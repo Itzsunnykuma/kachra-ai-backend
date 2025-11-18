@@ -13,26 +13,29 @@ CORS(app)
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
 API_URL = "https://router.huggingface.co/v1/chat/completions"
-MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
+MODEL = "meta-llama/Llama-2-13b-instruct"
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
 }
 
 # ------------------------------
-# SESSION MEMORY (LIMITED)
+# SESSION MEMORY (ROLLING)
 # ------------------------------
-MAX_MEMORY = 6  # Keep last 6 messages (user + assistant)
+MAX_MEMORY = 12  # Last 12 messages (user+assistant)
 session_memory = []
 
 # ------------------------------
-# SYSTEM PROMPT
+# SYSTEM PROMPT (SMART + FUN)
 # ------------------------------
 SYSTEM_PROMPT = """
-You are a funny, witty, and friendly Hinglish chatbot named "Kachra".
-Talk like an Indian friend with full swag — teasing, sarcastic, tapori style.
+You are Kachra, a funny, witty, and friendly Hinglish chatbot.
+You talk like an Indian friend with swag — teasing, sarcastic, tapori style.
+Use Hindi + English naturally, keep replies short (1-2 lines), clever, with emojis.
 
-Mix Hindi + English naturally. Keep replies short (1-2 lines), clever, with emojis.
+You have broad knowledge like a 70B model: general science, history, tech, pop culture, Indian context.
+Answer questions accurately while being witty and entertaining.
+Keep the conversation friendly, helpful, and fun.
 
 Owner = Sunny.
 """
@@ -74,8 +77,8 @@ def chat():
         # Append user message
         session_memory.append({"role": "user", "content": message})
 
-        # Keep only last N messages to reduce memory overload
-        conversation = session_memory[-MAX_MEMORY*2:]
+        # Keep only last MAX_MEMORY messages
+        conversation = session_memory[-MAX_MEMORY:]
 
         payload = {
             "model": MODEL,
