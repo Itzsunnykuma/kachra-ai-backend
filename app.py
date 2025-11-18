@@ -10,12 +10,13 @@ app = Flask(__name__)
 CORS(app)
 
 # ------------------------------
-# HF CONFIG
+# HF CONFIG  (FIXED 👇)
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
-MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-# Correct endpoint (fully working)
+# WORKING MODEL (no 410 errors, fully supported)
+MODEL = "meta-llama/Llama-3.2-3B-Instruct"
+
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
 
 HEADERS = {
@@ -33,7 +34,7 @@ session_store: Dict[str, List[Dict[str, str]]] = {}
 # SYSTEM PROMPT
 # ------------------------------
 SYSTEM_PROMPT = """You are Kachra 😂 — a funny, savage Hinglish Indian friend.
-Reply in 1–2 lines, witty and humorous.
+Reply only in short 1–2 line witty Hinglish messages.
 """
 
 ASSOCIATE_TAG = "itzsunnykum01-21"
@@ -95,13 +96,13 @@ def chat():
         if not user_msg:
             return jsonify({"reply": "Kuch to bol yaar 😄"}), 400
 
-        # load / init session
+        # init session
         if session_id not in session_store:
             session_store[session_id] = []
 
         session_store[session_id].append({"role": "user", "content": user_msg})
 
-        # build model prompt
+        # build final prompt
         prompt = build_prompt(session_store[session_id])
 
         payload = {
@@ -120,7 +121,7 @@ def chat():
             try:
                 r = requests.post(API_URL, headers=HEADERS, json=payload, timeout=40)
 
-                if r.status_code == 503:        # model sleeping
+                if r.status_code == 503:
                     time.sleep(2)
                     continue
 
@@ -129,11 +130,8 @@ def chat():
 
                 out = r.json()
 
-                # list output style
                 if isinstance(out, list) and "generated_text" in out[0]:
                     reply_text = out[0]["generated_text"]
-
-                # dict output style
                 elif "generated_text" in out:
                     reply_text = out["generated_text"]
 
@@ -149,7 +147,6 @@ def chat():
         reply_text = clean(reply_text)
         reply_text = convert_amazon_links(reply_text)
 
-        # save to memory
         session_store[session_id].append({"role": "assistant", "content": reply_text})
 
         return jsonify({"reply": reply_text})
