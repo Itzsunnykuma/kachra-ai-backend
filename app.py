@@ -12,6 +12,9 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # HF CONFIG
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
+if not HF_TOKEN:
+    print("⚠️ WARNING: HF_TOKEN is missing. Bot will be unreachable!")
+
 MODEL = "meta-llama/Meta-Llama-3-70B-Instruct"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
 
@@ -21,7 +24,7 @@ HEADERS = {
 }
 
 # ------------------------------
-# MEMORY (trimmed for stability)
+# MEMORY
 # ------------------------------
 session_memory = []
 MAX_MEMORY = 10
@@ -57,7 +60,7 @@ def convert_amazon_links_to_affiliate(text):
     return re.sub(pattern, replace_link, text)
 
 # ------------------------------
-# SUPER STABLE HF REQUEST
+# STABLE HF REQUEST
 # ------------------------------
 def stable_hf_request(payload):
     MAX_RETRIES = 5
@@ -69,33 +72,34 @@ def stable_hf_request(payload):
                 API_URL,
                 headers=HEADERS,
                 json=payload,
-                timeout=150,
+                timeout=60,  # reduced timeout
             )
 
             if response.status_code in [503, 504] or "loading" in response.text.lower():
+                print(f"⚠️ HF model loading, retry {attempt+1}")
                 time.sleep(RETRY_DELAY + attempt * 2)
                 continue
 
             return response
 
         except requests.exceptions.Timeout:
+            print(f"⚠️ Timeout, retry {attempt+1}")
             time.sleep(RETRY_DELAY + attempt * 2)
             continue
 
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ Exception in HF request: {e}")
             time.sleep(RETRY_DELAY)
             continue
 
     return None
 
-
 # ------------------------------
-# HEALTH CHECK (REQUIRED FOR RENDER)
+# HEALTH CHECK
 # ------------------------------
 @app.route("/")
 def home():
     return "OK", 200
-
 
 # ------------------------------
 # CHAT ENDPOINT
@@ -125,7 +129,7 @@ def chat():
                 "max_new_tokens": 300,
                 "temperature": 0.85,
                 "top_p": 0.9,
-                "return_full_text": False
+                "return_full_text": True  # safer parsing
             }
         }
 
@@ -138,9 +142,12 @@ def chat():
             return jsonify({"error": res.text}), 500
 
         try:
-            generated = res.json()[0]["generated_text"]
-        except:
-            generated = "Kachra on duty, but server crashed temporarily 😅 Try again!"
+            generated = res.json()[0].get("generated_text", "")
+            if not generated.strip():
+                generated = "Kachra on duty, but server temporarily crashed 😅 Try again!"
+        except Exception as e:
+            print(f"⚠️ HF parsing error: {e}")
+            generated = "Kachra on duty, but server temporarily crashed 😅 Try again!"
 
         reply = convert_amazon_links_to_affiliate(generated)
 
@@ -151,8 +158,8 @@ def chat():
         return jsonify({"reply": reply})
 
     except Exception as e:
+        print(f"⚠️ Chat endpoint error: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 # ------------------------------
 # RESET ENDPOINT
@@ -162,10 +169,9 @@ def reset_chat():
     session_memory.clear()
     return jsonify({"message": "Chat reset successfully"}), 200
 
-
 # ------------------------------
-# RUN APP (RENDER-COMPATIBLE)
+# RUN APP
 # ------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # REQUIRED for Render
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
