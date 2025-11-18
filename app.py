@@ -59,13 +59,28 @@ def convert_amazon_links_to_affiliate(text):
     return re.sub(pattern, replace_link, text)
 
 # ------------------------------
+# HELPER: GREETING CHECK
+# ------------------------------
+def is_greeting(text):
+    greetings = ["hi", "hello", "hey", "namaste", "yo", "hi there", "hey there"]
+    text_lower = text.strip().lower()
+    return any(text_lower == g for g in greetings)
+
+# ------------------------------
 # CHAT ENDPOINT
 # ------------------------------
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
-        message = data.get("message", "")
+        message = data.get("message", "").strip()
+
+        if not message:
+            return jsonify({"reply": "Bhai, kuch type karo 😅"}), 200
+
+        # Handle simple greetings without calling HF
+        if is_greeting(message):
+            return jsonify({"reply": "Heyy! Kya scene hai? 😎"}), 200
 
         # Initialize session
         if not session_memory:
