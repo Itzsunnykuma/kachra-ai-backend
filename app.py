@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -8,9 +9,15 @@ CORS(app)
 # ------------------------------
 # CONFIG
 # ------------------------------
-HF_TOKEN = "YOUR_FINE_GRAINED_TOKEN"        # Replace with your token
+# FIXED: Fetch token from Render Environment Variables
+HF_TOKEN = os.getenv("HF_TOKEN")
+
 HF_URL = "https://router.huggingface.co/v1/chat/completions"
 MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
+
+# Check if token exists to help with debugging
+if not HF_TOKEN:
+    print("WARNING: HF_TOKEN is missing! Make sure it is set in Render Environment Variables.")
 
 # In-memory sessions (cleared on restart)
 sessions = {}
@@ -51,6 +58,11 @@ def generate_kachra_reply(user_message, session_id):
 
     try:
         response = requests.post(HF_URL, headers=headers, json=payload, timeout=40)
+        
+        # Print error if the status code is not 200 (Success)
+        if response.status_code != 200:
+            return f"Error from HF: {response.status_code} - {response.text}"
+
         data = response.json()
 
         reply = (
