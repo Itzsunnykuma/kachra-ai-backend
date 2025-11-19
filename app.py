@@ -1,64 +1,56 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import os
 import requests
+import os
 
 app = Flask(__name__)
 CORS(app)
 
 # ------------------------------
-# Gemini 2.5 Flash config
+# Hugging Face Config
 # ------------------------------
-API_KEY = os.getenv("GEMINI_KEY")  # your Gemini API key
-MODEL = "gemini-2.5-flash"
-API_URL = "https://api.generativeai.google/v1beta2/models/gemini-2.5-flash:generateText"
-
+HF_TOKEN = os.getenv("HF_TOKEN")
+MODEL = "meta-llama/Llama-2-8b-chat-hf"
+API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
 HEADERS = {
-    "Authorization": f"Bearer {API_KEY}",
+    "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
 }
 
-SYSTEM_PROMPT = "You are Kachra 😂 — a funny savage Indian friend. Reply in short Hinglish."
-
 # ------------------------------
-# Routes
+# Chat Endpoint
 # ------------------------------
-@app.route("/")
-def home():
-    return "Kachra AI backend is live!"
-
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
-        data = request.get_json(force=True) or {}
-        user_msg = (data.get("message") or "").strip()
+        data = request.json
+        user_message = data.get("message", "").strip()
 
-        if not user_msg:
-            return jsonify({"reply": "Kuch to bol yaar 😄"}), 400
+        if not user_message:
+            return jsonify({"reply": "Please send a message!"})
 
         payload = {
-            "prompt": f"{SYSTEM_PROMPT}\nUser: {user_msg}\nKachra:",
-            "temperature": 0.8,
-            "candidate_count": 1,
-            "max_output_tokens": 200
+            "inputs": user_message,
+            "options": {"wait_for_model": True}
         }
 
-        r = requests.post(API_URL, headers=HEADERS, json=payload, timeout=40)
-        if r.status_code != 200:
-            return jsonify({"reply": f"Gemini error {r.status_code}"}), 500
+        response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
 
-        out = r.json()
-        # Extract the text from Gemini response
-        text = out.get("candidates", [{}])[0].get("output", "").strip()
-        return jsonify({"reply": text})
+        if response.status_code != 200:
+            return jsonify({"reply": f"AI API error: {response.text}"})
+
+        ai_output = response.json()
+        # Hugging Face returns a list with 'generated_text'
+        reply_text = ai_output[0]["generated_text"] if ai_output else "No reply"
+
+        return jsonify({"reply": reply_text})
 
     except Exception as e:
-        return jsonify({"reply": f"Kachra crashed but saved 😅: {e}"}), 200
+        return jsonify({"reply": f"Kachra crashed 😅: {str(e)}"})
 
-@app.route("/reset", methods=["POST"])
-def reset():
-    return jsonify({"message":"Chat reset successfully"}), 200
-
+# ------------------------------
+# Run App
+# ------------------------------
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 10000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
