@@ -12,8 +12,9 @@ CORS(app)
 # Hugging Face Router API Config
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
+API_URL = "https://router.huggingface.co/hf-inference"  # Correct Router API
 MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
+
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
@@ -33,7 +34,6 @@ Use emojis and desi expressions (tapori slang like jhaantu, lawde, saale).
 Keep replies short, clever, and 1–2 lines max.
 Mention Sunny Bhai when asked about the owner.
 Provide Amazon India product links with affiliate tag &tag=itzsunnykum01-21.
-Fallback to Google search links if Amazon results aren’t found.
 """
 
 AMAZON_KEYWORDS = ["suggest", "recommend", "buy", "product", "phone", "laptop", "clothes", "gadgets", "beauty", "kitchen"]
@@ -88,11 +88,11 @@ def chat():
     for msg in conversations[session_id][-10:]:  # last 10 messages
         role = "User" if msg["role"] == "user" else "AI"
         history_text += f"{role}: {msg['content']}\n"
-    prompt = SYSTEM_PROMPT + "\n" + history_text + "AI:"
 
-    # Hugging Face Router API call
+    # Router API payload
     payload = {
-        "inputs": prompt,
+        "model": MODEL,
+        "input": SYSTEM_PROMPT + "\n" + history_text + "AI:",
         "parameters": {"max_new_tokens": 300}
     }
 
@@ -102,8 +102,8 @@ def chat():
             return jsonify({"reply": f"AI API error: {response.text}", "session_id": session_id})
 
         ai_output = response.json()
-        # Router returns list of dicts with 'generated_text'
-        ai_reply = ai_output[0]["generated_text"] if isinstance(ai_output, list) else "Kya baat hai, reply nahi mila 😅"
+        # Router API returns 'generated_text'
+        ai_reply = ai_output.get("generated_text") or "Kya baat hai, reply nahi mila 😅"
 
         # Append Amazon or fallback web search
         if amazon_results:
