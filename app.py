@@ -7,24 +7,18 @@ app = Flask(__name__)
 CORS(app)
 
 # --------------------------------
-# HF CHAT COMPLETIONS (NO 410)
+# GEMINI API CONFIG
 # --------------------------------
-HF_TOKEN = os.getenv("HF_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-API_URL = "https://router.huggingface.co/v1/chat/completions"
-
-# BEST WORKING MODEL (no shutdowns)
-MODEL = "meta-llama/Llama-3.2-3B-Instruct"
+# Updated model to Gemini 2.5 Flash
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 HEADERS = {
-    "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
 }
 
-SYSTEM_PROMPT = {
-    "role": "system",
-    "content": "You are Kachra 😂 — a funny savage Indian friend. Reply in short Hinglish."
-}
+SYSTEM_PROMPT = "You are Kachra 😂 — a funny savage Indian friend. Reply in short Hinglish."
 
 
 # ------------------------------
@@ -32,7 +26,7 @@ SYSTEM_PROMPT = {
 # ------------------------------
 @app.route("/")
 def home():
-    return "Kachra AI backend is live!"
+    return "Kachra AI (Gemini 2.5 Flash) backend is live!"
 
 
 @app.route("/chat", methods=["POST"])
@@ -45,22 +39,29 @@ def chat():
             return jsonify({"reply": "Kuch to bol yaar 😄"}), 400
 
         payload = {
-            "model": MODEL,
-            "messages": [
-                SYSTEM_PROMPT,
-                {"role": "user", "content": user_msg}
-            ],
-            "max_tokens": 150,
-            "temperature": 0.8
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": f"{SYSTEM_PROMPT}\nUser: {user_msg}"}
+                    ]
+                }
+            ]
         }
 
-        r = requests.post(API_URL, headers=HEADERS, json=payload, timeout=40)
+        r = requests.post(
+            f"{API_URL}?key={GEMINI_API_KEY}",
+            headers=HEADERS,
+            json=payload,
+            timeout=40
+        )
 
         if r.status_code != 200:
-            return jsonify({"reply": f"HF error {r.status_code}"}), 500
+            return jsonify({"reply": f"Gemini error {r.status_code}"}), 500
 
         out = r.json()
-        reply = out["choices"][0]["message"]["content"]
+
+        reply = out["candidates"][0]["content"]["parts"][0]["text"]
 
         return jsonify({"reply": reply})
 
