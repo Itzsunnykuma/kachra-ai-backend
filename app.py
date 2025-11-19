@@ -13,7 +13,7 @@ CORS(app)
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
 MODEL = "meta-llama/Llama-2-8b-chat-hf"
-API_URL = "https://router.huggingface.co/hf-inference"
+API_URL = f"https://router.huggingface.co/api/models/{MODEL}"  # Correct endpoint
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
@@ -33,7 +33,7 @@ Use emojis and desi expressions (tapori slang like jhaantu, lawde, saale).
 Keep replies short, clever, and 1–2 lines max.
 Mention Sunny Bhai when asked about the owner.
 Provide Amazon India product links with affiliate tag &tag=itzsunnykum01-21.
-Fallback to Google search links if needed.
+Fallback to Google search links if Amazon results aren’t found.
 """
 
 AMAZON_KEYWORDS = ["suggest", "recommend", "buy", "product", "phone", "laptop", "clothes", "gadgets", "beauty", "kitchen"]
@@ -92,7 +92,6 @@ def chat():
 
     # Hugging Face Router API call
     payload = {
-        "model": MODEL,
         "inputs": prompt,
         "parameters": {"max_new_tokens": 300}
     }
@@ -101,10 +100,12 @@ def chat():
         response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
         if response.status_code != 200:
             return jsonify({"reply": f"AI API error: {response.text}", "session_id": session_id})
+
         ai_output = response.json()
+        # Router returns list of dicts with 'generated_text'
         ai_reply = ai_output[0]["generated_text"] if isinstance(ai_output, list) else "Kya baat hai, reply nahi mila 😅"
 
-        # Append Amazon or fallback
+        # Append Amazon or fallback web search
         if amazon_results:
             ai_reply += "\n\nHere are some options 👇\n" + "\n".join(f"• {link}" for link in amazon_results)
         elif not amazon_results:
