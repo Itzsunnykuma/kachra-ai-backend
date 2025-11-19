@@ -160,6 +160,13 @@ def chat():
         return jsonify({"reply": f"Kachra crashed 😅: {str(e)}", "session_id": session_id})
 
 # ------------------------------
+# Home Endpoint
+# ------------------------------
+@app.route("/", methods=["GET"])
+def home():
+    return "Kachra AI is live! Use POST /chat to talk 😎"
+
+# ------------------------------
 # Run App
 # ------------------------------
 if __name__ == "__main__":
