@@ -12,8 +12,8 @@ CORS(app)
 # Hugging Face Router API Config
 # ------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN")
-MODEL = "meta-llama/Llama-2-8b-chat-hf"
-API_URL = f"https://router.huggingface.co/api/models/{MODEL}"  # Correct endpoint
+MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
+API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
 HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}",
     "Content-Type": "application/json"
