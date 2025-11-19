@@ -1,132 +1,101 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
-import os
-import uuid
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 CORS(app)
 
 # ------------------------------
-# Hugging Face Router API Config
+# CONFIG
 # ------------------------------
-HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://router.huggingface.co/hf-inference"  # Correct Router API
-MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
+HF_TOKEN = "YOUR_FINE_GRAINED_TOKEN"  # replace with your Hugging Face token
+HF_URL = "https://router.huggingface.co/hf-inference"
 
-HEADERS = {
-    "Authorization": f"Bearer {HF_TOKEN}",
-    "Content-Type": "application/json"
-}
+# Session memory dictionary (cleared on server restart)
+sessions = {}
 
 # ------------------------------
-# Session memory (lost on refresh)
+# HELPER FUNCTIONS
 # ------------------------------
-conversations = {}
 
-# ------------------------------
-# Kachra personality
-# ------------------------------
-SYSTEM_PROMPT = """
-You are Kachra, a funny, witty, Hinglish chatbot with swag 😎.
-Use emojis and desi expressions (tapori slang like jhaantu, lawde, saale).
-Keep replies short, clever, and 1–2 lines max.
-Mention Sunny Bhai when asked about the owner.
-Provide Amazon India product links with affiliate tag &tag=itzsunnykum01-21.
-"""
+def kachra_ai_reply(user_message, session_id):
+    # Initialize session if new
+    if session_id not in sessions:
+        sessions[session_id] = []
 
-AMAZON_KEYWORDS = ["suggest", "recommend", "buy", "product", "phone", "laptop", "clothes", "gadgets", "beauty", "kitchen"]
+    # Add user message to session memory
+    sessions[session_id].append({"role": "user", "content": user_message})
 
-# ------------------------------
-# Helper functions
-# ------------------------------
-def amazon_search(query):
-    try:
-        q = "+".join(query.strip().split())
-        url = f"https://www.amazon.in/s?k={q}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        items = []
-        for a in soup.select("a.a-link-normal.s-no-outline")[:4]:
-            title = a.get_text().strip()
-            href = "https://www.amazon.in" + a.get("href") + "&tag=itzsunnykum01-21"
-            items.append(f"[{title}]({href})")
-        return items if items else ["No results found 😅"]
-    except Exception:
-        return ["Cannot fetch Amazon results 😅"]
+    # Build prompt for Kachra personality
+    personality_prompt = (
+        "You are a funny, witty, Hinglish chatbot named Kachra 😎. "
+        "Talk like an Indian friend with swag, emojis, and short clever sentences. "
+        "Mix Hindi and English naturally. Always include Amazon India affiliate links "
+        "if products are mentioned: &tag=itzsunnykum01-21. "
+        "If anyone mentions Sunny, reply: 'Sunny? Badhiya aadmi hai yaar! Bilkul solid banda 😎💪'. "
+        "Current conversation:\n"
+    )
+    for msg in sessions[session_id]:
+        personality_prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
+    personality_prompt += "Kachra:"
 
-def web_search(query):
-    url = f"https://www.google.com/search?q={'+'.join(query.split())}"
-    return [f"[Click here to search]({url})"]
-
-# ------------------------------
-# Chat endpoint
-# ------------------------------
-@app.route("/chat", methods=["POST"])
-def chat():
-    data = request.json
-    user_message = data.get("message", "").strip()
-    session_id = data.get("session_id") or str(uuid.uuid4())
-
-    if not user_message:
-        return jsonify({"reply": "Arre yaar, kuch type karo 😅", "session_id": session_id})
-
-    if session_id not in conversations:
-        conversations[session_id] = []
-
-    conversations[session_id].append({"role": "user", "content": user_message})
-
-    # Amazon search trigger
-    amazon_results = []
-    if any(word in user_message.lower() for word in AMAZON_KEYWORDS):
-        amazon_results = amazon_search(user_message)
-
-    # Build prompt with conversation history
-    history_text = ""
-    for msg in conversations[session_id][-10:]:  # last 10 messages
-        role = "User" if msg["role"] == "user" else "AI"
-        history_text += f"{role}: {msg['content']}\n"
-
-    # Router API payload
+    # Call Hugging Face Inference API
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json"
+    }
     payload = {
-        "model": MODEL,
-        "input": SYSTEM_PROMPT + "\n" + history_text + "AI:",
-        "parameters": {"max_new_tokens": 300}
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "input": personality_prompt,
+        "parameters": {"max_new_tokens": 200}
     }
 
     try:
-        response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
-        if response.status_code != 200:
-            return jsonify({"reply": f"AI API error: {response.text}", "session_id": session_id})
-
-        ai_output = response.json()
-        # Router API returns 'generated_text'
-        ai_reply = ai_output.get("generated_text") or "Kya baat hai, reply nahi mila 😅"
-
-        # Append Amazon or fallback web search
-        if amazon_results:
-            ai_reply += "\n\nHere are some options 👇\n" + "\n".join(f"• {link}" for link in amazon_results)
-        elif not amazon_results:
-            ai_reply += "\n\n" + "\n".join(f"• {link}" for link in web_search(user_message))
-
-        conversations[session_id].append({"role": "ai", "content": ai_reply})
-        return jsonify({"reply": ai_reply, "session_id": session_id})
-
+        response = requests.post(HF_URL, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        hf_output = response.json()
+        kachra_reply = hf_output.get("generated_text") or hf_output.get("text") or "Kya re, samajh nahi aaya 😅"
     except Exception as e:
-        return jsonify({"reply": f"Kachra crashed 😅: {str(e)}", "session_id": session_id})
+        kachra_reply = f"AI API error: {str(e)}"
+
+    # Add Kachra's reply to session memory
+    sessions[session_id].append({"role": "assistant", "content": kachra_reply})
+    return kachra_reply
+
+def amazon_search(query, max_results=3):
+    search_query = query.replace(" ", "+")
+    url = f"https://www.amazon.in/s?k={search_query}&tag=itzsunnykum01-21"
+    return url  # simple link; can be expanded to scrape titles if needed
 
 # ------------------------------
-# Home endpoint
+# ROUTES
 # ------------------------------
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    data = request.get_json()
+    message = data.get("message")
+    session_id = data.get("session_id", "default-session")
+
+    if not message:
+        return jsonify({"reply": "Message missing!", "session_id": session_id})
+
+    # Check for Amazon product request keywords
+    if any(keyword in message.lower() for keyword in ["buy", "product", "phone", "laptop", "clothes", "kitchen", "beauty", "gadgets"]):
+        amazon_url = amazon_search(message)
+        reply = f"Yeh dekh 👇\n• [Check it on Amazon]({amazon_url})"
+    else:
+        reply = kachra_ai_reply(message, session_id)
+
+    return jsonify({"reply": reply, "session_id": session_id})
+
 @app.route("/", methods=["GET"])
-def home():
-    return "Kachra AI is live! Use POST /chat 😎"
+def index():
+    return "Kachra AI is live! Use POST /chat to interact."
 
 # ------------------------------
-# Run app
+# RUN
 # ------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=10000)
