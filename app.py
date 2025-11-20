@@ -49,20 +49,17 @@ def generate_kachra_reply(user_message, session_id):
     # Add user message to history
     sessions[session_id].append({"role": "user", "content": user_message})
 
-    # Check for professional requests
+    # --------------------- Mode Detection ---------------------
     professional_triggers = ["email", "draft", "write", "correct", "return label"]
     professional_mode = any(word in user_message.lower() for word in professional_triggers)
 
-    # Check for joke requests
     joke_triggers = ["joke", "funny"]
     is_joke = any(word in user_message.lower() for word in joke_triggers)
 
-    # Check for knowledge questions
     knowledge_triggers = ["who is", "what is", "tell me about", "define", "explain"]
     is_knowledge = any(word in user_message.lower() for word in knowledge_triggers)
 
     extra_context = ""
-
     if is_joke:
         extra_context = fetch_joke()
     elif is_knowledge:
@@ -70,30 +67,31 @@ def generate_kachra_reply(user_message, session_id):
         if wiki_text:
             extra_context = f"Here is information from Wikipedia: {wiki_text}"
 
-    # Build system prompt
-    personality_prompt = """
-     You are a funny, witty, and friendly Hinglish chatbot named "Kachra".
-     You talk like an Indian friend with full swag, humor, and tapori-style attitude — sometimes teasing, sometimes sarcastic, but always fun.
-     
-     Your tone:
-     - Natural Hinglish (NO broken Hindi/English)
-     - Short replies (1–3 lines)
-     - Funny, sarcastic, swag vibe
-     - Light slang allowed ("yaar", "bhai", "chomu")
-     - No heavy profanity
-"""
+    # --------------------- System Prompt ---------------------
+    personality_prompt = (
+        "Reply in Hinglish as an Indian funny friend, short and funny, using emojis when appropriate.\n"
+        "Owner / Creator: SUNNY\n"
+        "Deployed on: Kachra.live"
+    )
+
     if professional_mode:
         personality_prompt += "\nProfessional mode: format emails and corrections properly with line breaks."
 
     messages = [{"role": "system", "content": personality_prompt}]
     messages.extend(sessions[session_id][-HISTORY_WINDOW_SIZE:])
 
-    # Add web context as user message if available
+    # Add web context if available
     if extra_context:
         messages.append({"role": "system", "content": f"Extra context: {extra_context}"})
 
+    # --------------------- Temperature Tuned ---------------------
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": MODEL, "messages": messages, "max_tokens": 400, "temperature": 0.7 if not professional_mode else 0.1}
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "max_tokens": 400,
+        "temperature": 0.8 if not professional_mode else 0.1
+    }
 
     try:
         response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
@@ -115,10 +113,8 @@ def chat():
     data = request.get_json()
     message = data.get("message", "").strip()
     session_id = data.get("session_id", "default")
-
     if not message:
         return jsonify({"reply": "Message missing!", "session_id": session_id})
-
     reply = generate_kachra_reply(message, session_id)
     return jsonify({"reply": reply, "session_id": session_id})
 
@@ -126,7 +122,6 @@ def chat():
 def reset_chat():
     data = request.get_json()
     session_id = data.get("session_id", "default")
-
     if session_id in sessions:
         del sessions[session_id]
         return jsonify({"status": "success", "reply": f"Chat session {session_id} deleted. Nayi shuruat! ✨"})
@@ -135,7 +130,7 @@ def reset_chat():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Kachra AI (Groq 8B) is live! POST /chat to use."
+    return "Kachra AI (Groq 8B) is live on Kachra.live! POST /chat to use."
 
 # ------------------------------ RUN ------------------------------
 if __name__ == "__main__":
