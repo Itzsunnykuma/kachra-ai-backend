@@ -11,7 +11,7 @@ CORS(app)
 # ------------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama3-8b-8192"
+MODEL = "llama-3.1-8b-instant"
 
 if not GROQ_API_KEY:
     print("WARNING: GROQ_API_KEY is missing! Set it in Render Environment Variables.")
