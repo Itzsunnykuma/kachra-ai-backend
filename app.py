@@ -7,19 +7,20 @@ app = Flask(__name__)
 CORS(app)
 
 # ------------------------------
-# CONFIG
+# CONFIG (UPDATED FOR GROQ)
 # ------------------------------
-# FIXED: Fetch token from Render Environment Variables
-HF_TOKEN = os.getenv("HF_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-HF_URL = "https://router.huggingface.co/v1/chat/completions"
-MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
+# Groq uses an OpenAI-compatible URL
+API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# Check if token exists to help with debugging
-if not HF_TOKEN:
-    print("WARNING: HF_TOKEN is missing! Make sure it is set in Render Environment Variables.")
+# Llama 3 on Groq
+MODEL = "llama3-8b-8192"
 
-# In-memory sessions (cleared on restart)
+if not GROQ_API_KEY:
+    print("WARNING: GROQ_API_KEY is missing! Set it in Render Environment Variables.")
+
+# In-memory sessions
 sessions = {}
 
 # ------------------------------
@@ -41,11 +42,13 @@ def generate_kachra_reply(user_message, session_id):
         "Stay in character ALWAYS."
     )
 
+    # Groq expects the system prompt to be part of the messages list logic
+    # We prepend it here conceptually, or send it as the first message
     messages = [{"role": "system", "content": personality}]
     messages.extend(sessions[session_id])
 
     headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
     }
 
@@ -57,11 +60,11 @@ def generate_kachra_reply(user_message, session_id):
     }
 
     try:
-        response = requests.post(HF_URL, headers=headers, json=payload, timeout=40)
+        # We use the generic requests library so you don't need to change requirements.txt
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
         
-        # Print error if the status code is not 200 (Success)
         if response.status_code != 200:
-            return f"Error from HF: {response.status_code} - {response.text}"
+            return f"Error from Groq: {response.status_code} - {response.text}"
 
         data = response.json()
 
@@ -99,7 +102,7 @@ def chat():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Kachra AI is live! POST /chat to use."
+    return "Kachra AI (Groq Version) is live! POST /chat to use."
 
 
 # ------------------------------
