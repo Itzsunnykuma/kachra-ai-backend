@@ -41,7 +41,7 @@ def chat():
 
         # Groq Completion
         response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            MODEL = "llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": personality_prompt},
                 {"role": "user", "content": user_message}
