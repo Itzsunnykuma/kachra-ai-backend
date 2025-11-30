@@ -9,7 +9,7 @@ CORS(app)
 # ------------------------------ CONFIG ------------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama-3.1-8b-instant"
+MODEL = "llama-3.1-70b-versatile"
 HISTORY_WINDOW_SIZE = 16
 
 if not GROQ_API_KEY:
