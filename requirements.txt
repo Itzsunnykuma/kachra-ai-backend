@@ -1,5 +1,4 @@
 flask
 flask-cors
+groq
 gunicorn
-requests
-beautifulsoup4
