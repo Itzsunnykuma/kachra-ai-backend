@@ -10,7 +10,6 @@ CORS(app)
 # Groq API Key (required)
 # -----------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
 client = Groq(api_key=GROQ_API_KEY)
 
 # -----------------------------
@@ -39,9 +38,9 @@ def chat():
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        # Groq Completion
+        # Groq Completion using groq/compound
         response = client.chat.completions.create(
-            MODEL = "llama-3.1-8b-instant",
+            MODEL="groq/compound",
             messages=[
                 {"role": "system", "content": personality_prompt},
                 {"role": "user", "content": user_message}
@@ -56,14 +55,12 @@ def chat():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # -----------------------------
 # Root endpoint
 # -----------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "Kachra AI backend running successfully!"})
-
 
 # -----------------------------
 # Start server
