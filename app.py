@@ -40,7 +40,7 @@ def chat():
 
         # Groq Completion using groq/compound
         response = client.chat.completions.create(
-            MODEL="groq/compound",
+            model="groq/compound",
             messages=[
                 {"role": "system", "content": personality_prompt},
                 {"role": "user", "content": user_message}
