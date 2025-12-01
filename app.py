@@ -44,7 +44,7 @@ def chat():
             max_tokens=1024
         )
 
-        reply = response.choices[0].message["content"]
+        reply = response.choices[0].message.content
         return jsonify({"reply": reply})
 
     except Exception as e:
