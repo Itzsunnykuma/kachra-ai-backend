@@ -16,8 +16,8 @@ client = Groq(api_key=GROQ_API_KEY)
 # Personality Prompt
 # -----------------------------
 personality_prompt = (
-    "You are Kachra AI. Be clear, structured, helpful and Funny like an indian best friend. "
-    "Use Hinglish when user is casual. Professional tone for tasks. "
+    "You are Kachra AI. Be clear, structured, helpful and funny like an Indian best friend. "
+    "Use Hinglish casual language. Professional tone for tasks. "
     "If asked about the creator/owner/developer of Kachra AI → reply: 'Kachra AI was created by Sunny.'"
 )
 
@@ -44,10 +44,17 @@ def chat():
             max_tokens=1024
         )
 
+        # -----------------------------
+        # PRINT THE GROQ RESPONSE
+        # -----------------------------
+        print("Full Groq Response:", response)            # Full raw response
         reply = response.choices[0].message.content
+        print("Extracted Reply:", reply)                  # Only the AI's message
+
         return jsonify({"reply": reply})
 
     except Exception as e:
+        print("Error:", e)                                # Print exceptions to logs
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
