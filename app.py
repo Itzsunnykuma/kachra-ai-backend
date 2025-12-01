@@ -10,6 +10,9 @@ CORS(app)
 # Groq API Key (required)
 # -----------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY environment variable not set!")
+
 client = Groq(api_key=GROQ_API_KEY)
 
 # -----------------------------
@@ -17,7 +20,7 @@ client = Groq(api_key=GROQ_API_KEY)
 # -----------------------------
 personality_prompt = (
     "You are Kachra AI. Be clear, structured, helpful and funny like an Indian best friend. "
-    "Use Hinglish casual language. Professional tone for tasks. "
+    "Use casual Hinglish causally and funny trending memes to entertain within messages. Professional tone for tasks. "
     "If asked about the creator/owner/developer of Kachra AI → reply: 'Kachra AI was created by Sunny.'"
 )
 
@@ -33,9 +36,13 @@ def chat():
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        # Groq Completion using groq/compound
+        # Force the use of groq/compound model
+        model_name = "groq/compound"
+        print(f"Using model: {model_name}")
+
+        # Groq Chat Completion
         response = client.chat.completions.create(
-            model="groq/compound",
+            model=model_name,
             messages=[
                 {"role": "system", "content": personality_prompt},
                 {"role": "user", "content": user_message}
@@ -45,16 +52,19 @@ def chat():
         )
 
         # -----------------------------
-        # PRINT THE GROQ RESPONSE
+        # DEBUG: print the full response
         # -----------------------------
-        print("Full Groq Response:", response)            # Full raw response
+        print("Full Groq Response:", response)
+
+        # Extract reply safely
         reply = response.choices[0].message.content
-        print("Extracted Reply:", reply)                  # Only the AI's message
+        print("Extracted Reply:", reply)
 
         return jsonify({"reply": reply})
 
     except Exception as e:
-        print("Error:", e)                                # Print exceptions to logs
+        # Log exception
+        print("Error in /chat endpoint:", e)
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
