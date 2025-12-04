@@ -19,7 +19,7 @@ client = Groq(api_key=GROQ_API_KEY)
 # -----------------------------
 # SerpAPI Key for web search
 # -----------------------------
-SERPAPI_KEY = os.getenv("SERPAPI_KEY")  
+SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 
 # -----------------------------
 # Personality Prompt
@@ -34,8 +34,8 @@ personality_prompt = (
 # -----------------------------
 # Session storage (short memory)
 # -----------------------------
-sessions = {}  
-MAX_MEMORY = 5  # store last 5 messages only per session
+sessions = {}
+MAX_MEMORY = 5  # store last 5 messages per session
 
 
 # -----------------------------
@@ -75,21 +75,21 @@ def chat():
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        # Reset memory for each new session_id
+        # Create fresh session memory for new session_id
         if session_id not in sessions:
             sessions[session_id] = []
 
-        # Web search
+        # Check for web search request
         if user_message.lower().startswith("search:"):
             query = user_message.replace("search:", "").strip()
             result = search_web(query)
             return jsonify({"reply": result})
 
-        # Add user message with short memory handling
+        # Store user message with short memory
         sessions[session_id].append({"role": "user", "content": user_message})
         sessions[session_id] = sessions[session_id][-MAX_MEMORY:]
 
-        # Ask Groq
+        # Groq Completion
         response = client.chat.completions.create(
             model="groq/compound",
             messages=[{"role": "system", "content": personality_prompt}] + sessions[session_id],
@@ -99,10 +99,11 @@ def chat():
 
         reply = response.choices[0].message.content
 
-        # Auto-shorten replies unless email
+        # Short, 1–2 line replies unless writing an email
         if "email" not in user_message.lower():
-            reply = " ".join(reply.split()[:25])  # ~1–2 lines
+            reply = " ".join(reply.split()[:25])  # approx 1–2 lines
 
+        # Store assistant reply
         sessions[session_id].append({"role": "assistant", "content": reply})
 
         return jsonify({"reply": reply})
@@ -112,10 +113,16 @@ def chat():
         return jsonify({"error": str(e)}), 500
 
 
+# -----------------------------
+# Root endpoint
+# -----------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "Kachra AI backend running successfully!"})
 
 
+# -----------------------------
+# Start server
+# -----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
