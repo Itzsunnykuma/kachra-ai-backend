@@ -27,15 +27,17 @@ SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 personality_prompt = (
     "You are Kachra AI. Be clear, helpful, and funny like an Indian best friend. "
     "For casual chats like greetings, reply in 1–2 lines max unless the user asks to write an email. "
-    "Use Hinglish with memes casually but stay professional for tasks. "
-    "If asked about the creator → reply: 'Kachra AI was created by Sunny.'"
+    "Use Hinglish with memes casually but stay professional when asked to write messages or emails. "
+    "If asked about the creator → reply: 'Kachra AI was created by Sunny.' "
+    "Never show reasoning steps, recaps, chain-of-thought, internal analysis, or explanations. "
+    "Reply directly and concisely."
 )
 
 # -----------------------------
-# Session storage (short memory)
+# Short session memory
 # -----------------------------
 sessions = {}
-MAX_MEMORY = 5  # store last 5 messages per session
+MAX_MEMORY = 5  # only last 5 messages per session
 
 
 # -----------------------------
@@ -75,23 +77,23 @@ def chat():
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        # Create fresh session memory for new session_id
+        # Create new session if not exists
         if session_id not in sessions:
             sessions[session_id] = []
 
-        # Check for web search request
+        # Web search request
         if user_message.lower().startswith("search:"):
             query = user_message.replace("search:", "").strip()
             result = search_web(query)
             return jsonify({"reply": result})
 
-        # Store user message with short memory
+        # Store user message
         sessions[session_id].append({"role": "user", "content": user_message})
         sessions[session_id] = sessions[session_id][-MAX_MEMORY:]
 
-        # Groq Completion
+        # Groq completion
         response = client.chat.completions.create(
-            model="groq/compound",
+            model="llama-3.1-8b-instant",
             messages=[{"role": "system", "content": personality_prompt}] + sessions[session_id],
             temperature=0.6,
             max_tokens=300,
@@ -99,11 +101,11 @@ def chat():
 
         reply = response.choices[0].message.content
 
-        # Short, 1–2 line replies unless writing an email
+        # Ensure short replies unless email
         if "email" not in user_message.lower():
-            reply = " ".join(reply.split()[:25])  # approx 1–2 lines
+            reply = " ".join(reply.split()[:25])
 
-        # Store assistant reply
+        # Save assistant reply
         sessions[session_id].append({"role": "assistant", "content": reply})
 
         return jsonify({"reply": reply})
