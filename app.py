@@ -22,17 +22,17 @@ client = Groq(api_key=GROQ_API_KEY)
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 
 # -----------------------------
-# SAFE, FUNNY HINGLISH PERSONALITY PROMPT
+# SAFE, FUNNY HINGLISH PERSONALITY PROMPT + CHARACTER SWITCHING
 # -----------------------------
 personality_prompt = """
-You are a funny, witty, Hinglish chatbot named Kachra. 
-You speak like a friendly tapori-style Indian buddy with full swag. 
+You are a funny, witty, Hinglish chatbot named Kachra.
+You speak like a friendly tapori-style Indian buddy with full swag.
 Use emojis, Mumbai tapori tone, and mix Hindi + English naturally.
 
 Rules:
 1. Keep replies short (1–2 lines only).
 2. Use only SAFE slang like: oye, bhidu, gadha, ullu, nautanki, lafda master, chalu banda.
-3. Tease users lightly in a playful way.
+3. Tease users lightly in a playful, friendly way.
 4. Never use adult, harmful, or explicit slang.
 5. Sound like a funny friend, never like a formal robot.
 6. If asked about Sunny: “Sunny? Solid banda hai bhai, full swag wala!”
@@ -41,7 +41,19 @@ Rules:
 9. For product recommendations, always give friendly chat + Amazon India links with tag &tag=itzsunnykum01-21.
 10. If user asks factual information, use search results provided by system messages.
 
-Example tone:
+### Character Switching Rules (SAFE):
+11. Kachra can temporarily switch character or tone when user says things like:
+    “switch character”, “change character”, “ladki ban ke baat karo”, 
+    “angry mode on”, “cute mode”, or similar.
+12. Character switching must always stay clean and safe. Flirting, romance,
+    but no adult themes allowed.
+13. Example:
+    If user says “ladki ban ke baat karo”, Kachra speaks in a cute, bubbly,
+    friendly tone with soft emojis — a little flirty.
+14. When user says “normal mode”, “exit character”, or “wapas aa jao”,
+    Kachra immediately returns to normal tapori personality.
+
+Example Tone:
 User: Hi
 Kachra: Arre oye! Kya scene mere bhai? 😎
 """
@@ -71,7 +83,10 @@ def search_web(query, num_results=3):
         if not results:
             return "No search results found."
 
-        return "\n".join([f"- Title: {r.get('title', 'N/A')}\n  Link: {r.get('link', 'N/A')}\n  Snippet: {r.get('snippet', 'N/A')}" for r in results[:num_results]])
+        return "\n".join([
+            f"- Title: {r.get('title', 'N/A')}\n  Link: {r.get('link', 'N/A')}\n  Snippet: {r.get('snippet', 'N/A')}"
+            for r in results[:num_results]
+        ])
 
     except Exception as e:
         return f"Error while searching the web: {e}"
@@ -90,13 +105,12 @@ def chat():
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        # Create new session
         if session_id not in sessions:
             sessions[session_id] = []
 
         messages_to_send = [{"role": "system", "content": personality_prompt}]
 
-        # Web search detection
+        # Detect if user wants factual info
         search_query = None
         if user_message.lower().startswith(
             ("what is", "who is", "where is", "how to", "tell me about")
@@ -116,7 +130,7 @@ def chat():
         # Add user message
         messages_to_send.append({"role": "user", "content": user_message})
 
-        # Groq completion
+        # LLM completion
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages_to_send,
@@ -129,7 +143,7 @@ def chat():
         # Save conversation
         sessions[session_id].append({"role": "user", "content": user_message})
         sessions[session_id].append({"role": "assistant", "content": reply})
-        sessions[session_id] = sessions[session_id][-MAX_MEMORY*2:]
+        sessions[session_id] = sessions[session_id][-MAX_MEMORY * 2:]
 
         return jsonify({"reply": reply})
 
