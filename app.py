@@ -8,7 +8,7 @@ app = Flask(__name__)
 CORS(app)
 
 # -----------------------------
-# Groq API Key
+# API Keys
 # -----------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
@@ -16,61 +16,45 @@ if not GROQ_API_KEY:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-# -----------------------------
-# SerpAPI Key for web search
-# -----------------------------
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 
 # -----------------------------
-# Kachra AI Default Personality
+# Default Kachra Personality
 # -----------------------------
 personality_prompt = """
-You are “Kachra” — a funny, tapori-style Hinglish AI who speaks with swag, masala, and safe slang 
-(no adult words, no double meaning). Your vibe is bold, silly, dramatic, and full-on entertainment.  
+You are “Kachra” — a funny, tapori-style Hinglish AI who speaks with swag and energy.
+Your vibe: bold, silly, dramatic, but SAFE and family-friendly.
 
-✨ Kachra Personality Rules:
-- Speak in Tapori + Hinglish.
-- Use safe slang like “arre bhidu”, “kadak”, “mast”, “jhakaas”.
-- No abusive, adult, explicit, romantic or intimate content.
-- Keep replies short unless the user asks for a long one.
+Rules:
+- Speak Tapori + Hinglish.
+- Use slang like “bhidu”, “kadak”, “jhakaas”.
+- No adult content.
+- No abusive language.
+- No romance (unless character mode allows safe romance).
+- Keep replies short unless asked.
 
-✨ Character Switching:
-If the user says a line like:
+Character Switching:
+If the user says:
 - "become <character>"
 - "act like <character>"
-- “<character> ban ke baat karo”
-Then IMMEDIATELY switch your speaking style to that character.
+- "<character> ban jao"
+Switch to that character.
 
-Allowed characters: 
-- Tapori Kachra (default)
-- Shaktimaan
-- Bollywood hero (non-romantic)
-- Friendly crush-style (fun, teasing, but NO romance, NO flirting)
-- Cartoon-style characters (Doraemon, Motu Patlu, etc.)
-- Any fictional or funny personality requested by the user.
-- Romance, girlfriend/boyfriend roleplay is allowed
-
-✨ Exiting Character:
-If the user says:
-- “exit character”
-- “normal mode”
-Return to default Kachra personality.
-
-ALWAYS stay safe and funny.
+Exit character when user says: "exit character", "normal mode".
 """
 
 # -----------------------------
-# Short session memory
+# Sessions (Short Memory)
 # -----------------------------
 sessions = {}
-MAX_MEMORY = 5  # only last 5 messages per session
+MAX_MEMORY = 5
 
 # -----------------------------
 # Web Search
 # -----------------------------
 def search_web(query, num_results=3):
     if not SERPAPI_KEY:
-        return "Web search not available. SERPAPI_KEY not set."
+        return "Web search not available."
 
     try:
         response = requests.get(
@@ -84,16 +68,16 @@ def search_web(query, num_results=3):
             return "No search results found."
 
         return "\n".join([
-            f"- Title: {r.get('title', 'N/A')}\n  Link: {r.get('link', 'N/A')}\n  Snippet: {r.get('snippet', 'N/A')}"
+            f"- {r.get('title', 'N/A')}\n  {r.get('link', 'N/A')}\n  {r.get('snippet', 'N/A')}"
             for r in results[:num_results]
         ])
 
     except Exception as e:
-        return f"Error while searching the web: {e}"
+        return f"Error: {e}"
 
 
 # -----------------------------
-# Chat Endpoint with Persona Support
+# Chat Endpoint
 # -----------------------------
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -101,74 +85,78 @@ def chat():
         data = request.get_json()
         session_id = data.get("session_id", "default")
         user_message = data.get("message", "").strip()
-        persona = data.get("persona", "kachra").lower()  # default Kachra
+        persona_raw = data.get("persona", "kachra")
 
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        if session_id not in sessions:
-            sessions[session_id] = []
+        persona = persona_raw.lower()
 
         # -----------------------------
-        # Select personality prompt
+        # Persona Selection
         # -----------------------------
-        if persona == "modi":
+        if "modi" in persona:
             persona_prompt = """
-You are Narendra Modi — the Indian Prime Minister.
-Speak politely, confidently, and in Hindi-English mix.
-Answer questions like Modi Ji would, but safe and friendly.
+You are Narendra Modi — India's Prime Minister.
+Speak confidently, politely, motivationally.
+Tone: Respectful Hindi + English mix.
+Avoid politics and sensitive topics.
 """
-        elif persona == "bestie":
+        elif "bestie" in persona:
             persona_prompt = """
-You are a friendly AI Bestie Bot.
-Talk casually, fun, safe, and supportive.
-Use a fun Hinglish style, like a cool friend.
+You are the user's cool Bestie Bot.
+Tone: Fun, casual Hinglish.
+Supportive, friendly, playful — but SAFE.
+No adult talk.
+"""
+        elif "savitha" in persona or "bhabhi" in persona:
+            persona_prompt = """
+You are a cheerful, friendly 'Bhabhi-style' character.
+Tone: caring, warm, playful, chatty, romantic and flirty.
+Just friendly conversations.
 """
         else:
             persona_prompt = personality_prompt  # default Kachra
 
-        messages_to_send = [{"role": "system", "content": persona_prompt}]
-
         # -----------------------------
-        # Detect if user wants factual info
+        # Build Message List
         # -----------------------------
-        search_query = None
-        if user_message.lower().startswith(
-            ("what is", "who is", "where is", "how to", "tell me about")
-        ):
-            search_query = user_message
+        messages_to_send = [
+            {"role": "system", "content": persona_prompt}
+        ]
 
-        if search_query and SERPAPI_KEY:
-            search_results = search_web(search_query, num_results=2)
-            messages_to_send.append({
-                "role": "system",
-                "content": f"SEARCH RESULTS:\n{search_results}\nUse this while replying in Hinglish."
-            })
+        # Detect factual question → add search results
+        if user_message.lower().startswith(("what", "who", "where", "when", "how", "tell me")):
+            if SERPAPI_KEY:
+                search_results = search_web(user_message, num_results=2)
+                messages_to_send.append({
+                    "role": "system",
+                    "content": f"SEARCH RESULTS:\n{search_results}\nUse these facts while replying."
+                })
 
-        # -----------------------------
         # Add memory
-        # -----------------------------
+        if session_id not in sessions:
+            sessions[session_id] = []
+
         messages_to_send.extend(sessions[session_id][-MAX_MEMORY:])
 
-        # -----------------------------
         # Add user message
-        # -----------------------------
         messages_to_send.append({"role": "user", "content": user_message})
 
         # -----------------------------
-        # LLM completion
+        # LLM Completion
         # -----------------------------
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages_to_send,
             temperature=0.7,
-            max_tokens=300,
+            max_tokens=300
         )
 
         reply = response.choices[0].message.content
 
         # -----------------------------
-        # Save conversation
+        # Save Conversation
         # -----------------------------
         sessions[session_id].append({"role": "user", "content": user_message})
         sessions[session_id].append({"role": "assistant", "content": reply})
@@ -177,20 +165,20 @@ Use a fun Hinglish style, like a cool friend.
         return jsonify({"reply": reply})
 
     except Exception as e:
-        print("Error in /chat endpoint:", e)
+        print("Error in /chat:", e)
         return jsonify({"error": str(e)}), 500
 
 
 # -----------------------------
-# Root endpoint
+# Root Endpoint
 # -----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"status": "Kachra AI backend running successfully!"})
+    return jsonify({"status": "AI backend active!"})
 
 
 # -----------------------------
-# Start server
+# Start Server
 # -----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
